@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ми<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -621,3 +621,19 @@ function toggleVoice(){
 </script>
 </body>
 </html>
+<script>
+function activate() {
+  const key = document.getElementById("akey").value;
+
+  if (!key) {
+    alert("Въведи API ключ");
+    return;
+  }
+
+  // показва app-а
+  document.getElementById("setup").style.display = "none";
+  document.getElementById("app").classList.add("on");
+
+  console.log("Activated with key:", key);
+}
+</script>
