@@ -1,8 +1,6 @@
 import os
 import json
-import datetime
-import requests
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, render_template_string
 
 app = Flask(__name__)
 
@@ -431,6 +429,10 @@ function clearFile() {
 </script>
 </body>
 </html>"""
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
 
 @app.route('/')
 def index():
