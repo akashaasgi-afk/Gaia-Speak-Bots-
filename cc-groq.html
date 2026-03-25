@@ -637,3 +637,26 @@ function activate() {
   console.log("Activated with key:", key);
 }
 </script>
+<script>
+async function activate() {
+  const key = document.getElementById("akey").value;
+
+  if (!key) {
+    alert("Enter key");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/test");
+    const data = await res.text();
+
+    alert("Backend works: " + data);
+
+    document.getElementById("setup").style.display = "none";
+    document.getElementById("app").classList.add("on");
+
+  } catch (err) {
+    alert("Backend NOT working");
+  }
+}
+</script>
