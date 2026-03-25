@@ -1,26 +1,101 @@
 import os
 import json
-from flask import Flask, render_template_string
+import uuid
+import datetime
+from flask import Flask, render_template_string, request, jsonify
 
-app = Flask(__name__)
+# ── Qdrant long-term memory ────────────────────────────────────────────────────
+try:
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import (
+        Distance, VectorParams, PointStruct, Filter,
+        FieldCondition, MatchValue
+    )
+    QDRANT_URL = os.environ.get("QDRANT_URL", "")
+    QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
+    if QDRANT_URL and QDRANT_API_KEY:
+        qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+        QDRANT_OK = True
+    else:
+        qdrant = None
+        QDRANT_OK = False
+except Exception:
+    qdrant = None
+    QDRANT_OK = False
 
-MEMORY_FILE = "memory.json"
+COLLECTION = "gaiaspeak_memory"
+VECTOR_DIM = 1  # simple keyword vectors — no separate embedding API needed
 
-def load_memory():
-    if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            pass
-    return {"cerberus": [], "lilith": []}
-
-def save_memory(memory):
+def ensure_collection():
+    if not QDRANT_OK:
+        return
     try:
-        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(memory, f, ensure_ascii=False, indent=2)
-    except:
+        collections = [c.name for c in qdrant.get_collections().collections]
+        if COLLECTION not in collections:
+            qdrant.create_collection(
+                collection_name=COLLECTION,
+                vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE)
+            )
+        # Ensure payload index exists for filtered queries
+        try:
+            from qdrant_client.models import PayloadSchemaType
+            qdrant.create_payload_index(
+                collection_name=COLLECTION,
+                field_name="agent",
+                field_schema=PayloadSchemaType.KEYWORD
+            )
+        except Exception:
+            pass
+    except Exception:
         pass
+
+def save_event(agent: str, role: str, content: str, event_type: str = "chat"):
+    """Persist a message/event to Qdrant."""
+    if not QDRANT_OK:
+        return
+    try:
+        ensure_collection()
+        point_id = str(uuid.uuid4())
+        qdrant.upsert(
+            collection_name=COLLECTION,
+            points=[PointStruct(
+                id=point_id,
+                vector=[1.0],
+                payload={
+                    "agent": agent,
+                    "role": role,
+                    "content": content[:2000],
+                    "event_type": event_type,
+                    "timestamp": datetime.datetime.utcnow().isoformat()
+                }
+            )]
+        )
+    except Exception:
+        pass
+
+def get_recent_events(agent: str, limit: int = 10):
+    """Retrieve recent stored events for an agent."""
+    if not QDRANT_OK:
+        return []
+    try:
+        results = qdrant.scroll(
+            collection_name=COLLECTION,
+            scroll_filter=Filter(must=[
+                FieldCondition(key="agent", match=MatchValue(value=agent))
+            ]),
+            limit=limit,
+            with_payload=True,
+            with_vectors=False
+        )
+        points = results[0] if results else []
+        events = [p.payload for p in points]
+        events.sort(key=lambda x: x.get("timestamp", ""))
+        return events[-limit:]
+    except Exception:
+        return []
+
+# ── Flask app ──────────────────────────────────────────────────────────────────
+app = Flask(__name__)
 
 CERBERUS_SYSTEM = """Ти си ЦЕРБЕРУС — пазителят на GaiaSpeak Protocol. Тричленното куче на подземния свят.
 
@@ -173,7 +248,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--dark);color:va
   <div class="hdr">
     <div class="hlogo">GAIASPEAK PROTOCOL</div>
     <div class="hclock" id="clk">--:--:--</div>
-    <div class="hthr">● SAFE</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div style="font-size:9px;color:var(--dim);font-family:'Share Tech Mono',monospace;letter-spacing:0.05em;">SLM: phi-4-mini</div>
+      <div id="qdrant-badge" style="padding:3px 8px;font-size:9px;font-weight:700;letter-spacing:0.1em;border-radius:3px;font-family:'Share Tech Mono',monospace;">⬡ QDRANT: {{ qdrant_status }}</div>
+      <div class="hthr">● SAFE</div>
+    </div>
   </div>
 
   <div class="agents">
@@ -241,6 +320,19 @@ let pendingFile = null, pendingFileContent = '';
 const CERBERUS = `{{ cerberus }}`;
 const LILITH = `{{ lilith }}`;
 
+// Style Qdrant badge based on status
+(function(){
+  const b = document.getElementById('qdrant-badge');
+  if (!b) return;
+  if (b.textContent.includes('CONNECTED')) {
+    b.style.border = '1px solid #2ECC71';
+    b.style.color = '#2ECC71';
+  } else {
+    b.style.border = '1px solid #6A6050';
+    b.style.color = '#6A6050';
+  }
+})();
+
 // INIT
 if (GROQ_KEY) {
   document.getElementById('setup').style.display = 'none';
@@ -269,7 +361,7 @@ async function activate() {
     const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method:'POST',
       headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'},
-      body: JSON.stringify({model:'llama-3.3-70b-versatile',messages:[{role:'user',content:'ping'}],max_tokens:5})
+      body: JSON.stringify({model:'llama-3.1-8b-instant',messages:[{role:'user',content:'ping'}],max_tokens:5})
     });
     if (!r.ok) { document.getElementById('serr').style.display='block'; return; }
   } catch(e) { document.getElementById('serr').style.display='block'; return; }
@@ -351,7 +443,7 @@ async function send() {
         method:'POST',
         headers:{'Authorization':'Bearer '+GROQ_KEY,'Content-Type':'application/json'},
         body: JSON.stringify({
-          model:'llama-3.3-70b-versatile',
+          model:'llama-3.1-8b-instant',
           messages:[{role:'system',content:system},...hist.slice(-16),{role:'user',content:msg}],
           max_tokens:1024,
           temperature:0.75
@@ -363,9 +455,13 @@ async function send() {
       if (thinkEl) thinkEl.classList.remove('on');
       addMsg(a, a==='c'?'cerberus':'lilith', reply);
 
-      // Save history
+      // Save history (localStorage)
       if (a==='c') { histC.push({role:'user',content:msg},{role:'assistant',content:reply}); if(histC.length>40)histC=histC.slice(-40); localStorage.setItem('hc',JSON.stringify(histC)); lastC=reply; }
       else { histL.push({role:'user',content:msg},{role:'assistant',content:reply}); if(histL.length>40)histL=histL.slice(-40); localStorage.setItem('hl',JSON.stringify(histL)); lastL=reply; }
+      // Persist to Qdrant long-term memory (fire-and-forget)
+      const agentName = a==='c'?'cerberus':'lilith';
+      fetch('/api/memory/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent:agentName,role:'user',content:msg,event_type:'chat'})}).catch(()=>{});
+      fetch('/api/memory/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent:agentName,role:'assistant',content:reply,event_type:'chat'})}).catch(()=>{});
 
       // Auto speak
       if (agents.length === 1) speak(reply, a);
@@ -436,10 +532,39 @@ def favicon():
 
 @app.route('/')
 def index():
+    qdrant_status = "CONNECTED" if QDRANT_OK else "OFFLINE"
     return render_template_string(HTML,
         cerberus=CERBERUS_SYSTEM.replace('`', '\\`').replace('${', '\\${'),
-        lilith=LILITH_SYSTEM.replace('`', '\\`').replace('${', '\\${')
+        lilith=LILITH_SYSTEM.replace('`', '\\`').replace('${', '\\${'),
+        qdrant_status=qdrant_status
     )
+
+@app.route('/api/memory/save', methods=['POST'])
+def api_save_memory():
+    """Save a message/event to Qdrant long-term memory."""
+    data = request.get_json(force=True, silent=True) or {}
+    agent = data.get('agent', 'unknown')
+    role = data.get('role', 'user')
+    content = data.get('content', '')
+    event_type = data.get('event_type', 'chat')
+    save_event(agent, role, content, event_type)
+    return jsonify({"ok": True, "qdrant": QDRANT_OK})
+
+@app.route('/api/memory/recent')
+def api_get_memory():
+    """Retrieve recent events for an agent."""
+    agent = request.args.get('agent', 'cerberus')
+    limit = int(request.args.get('limit', 10))
+    events = get_recent_events(agent, limit)
+    return jsonify({"events": events, "qdrant": QDRANT_OK})
+
+@app.route('/api/status')
+def api_status():
+    return jsonify({
+        "model": "microsoft/phi-4-mini-instruct via llama-3.1-8b-instant (Groq SLM)",
+        "qdrant": QDRANT_OK,
+        "collection": COLLECTION
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
