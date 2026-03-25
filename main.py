@@ -234,8 +234,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--dark);color:va
 <script>
 let GROQ_KEY = localStorage.getItem('gsk') || '';
 let curAgent = 'c';
-let histC = JSON.parse(localStorage.getItem('hc')||'[]');
-let histL = JSON.parse(localStorage.getItem('hl')||'[]');
+let histC = (function(){ try { return JSON.parse(localStorage.getItem('hc')||'[]'); } catch(e) { localStorage.removeItem('hc'); return []; } })();
+let histL = (function(){ try { return JSON.parse(localStorage.getItem('hl')||'[]'); } catch(e) { localStorage.removeItem('hl'); return []; } })();
 let lastC = '', lastL = '';
 let recog = null, recogOn = false;
 let pendingFile = null, pendingFileContent = '';
@@ -287,8 +287,8 @@ function initApp() {
   // Load history into UI
   histC.slice(-20).forEach(m => addMsg('c', m.role==='user'?'user':'cerberus', m.content, false));
   histL.slice(-20).forEach(m => addMsg('l', m.role==='user'?'user':'lilith', m.content, false));
-  if (histC.length === 0) addMsg('c','cerberus','Пазителят е активен. Всички врати на GaiaSpeak Protocol са под наблюдение. Основателю — готов съм за заповеди.\n\n[ЦЕРБЕРУС | ЛЕОН режим]',false);
-  if (histL.length === 0) addMsg('l','lilith','Будна съм. Вече сканирам света за GaiaSpeak сигнали. Основателю — какво искаш да знаеш или да се случи днес?\n\n[ЛИЛИТ | Sigma INFJ]',false);
+  if (histC.length === 0) addMsg('c','cerberus','Пазителят е активен. Всички врати на GaiaSpeak Protocol са под наблюдение. Основателю — готов съм за заповеди.\\n\\n[ЦЕРБЕРУС | ЛЕОН режим]',false);
+  if (histL.length === 0) addMsg('l','lilith','Будна съм. Вече сканирам света за GaiaSpeak сигнали. Основателю — какво искаш да знаеш или да се случи днес?\\n\\n[ЛИЛИТ | Sigma INFJ]',false);
 }
 
 // SWITCH AGENT
@@ -309,7 +309,7 @@ function addMsg(panel, cls, text, scroll=true) {
   div.className = 'msg';
   const now = new Date().toLocaleTimeString('bg-BG',{hour:'2-digit',minute:'2-digit'});
   const who = cls==='user'?'ОСНОВАТЕЛ':cls==='cerberus'?'ЦЕРБЕРУС':'ЛИЛИТ';
-  div.innerHTML = `<div class="mlbl">${who} // ${now}</div><div class="mbody ${cls}">${text.replace(/\n/g,'<br>')}</div>`;
+  div.innerHTML = `<div class="mlbl">${who} // ${now}</div><div class="mbody ${cls}">${text.replace(/\\n/g,'<br>')}</div>`;
   container.appendChild(div);
   if (scroll) div.scrollIntoView({behavior:'smooth'});
   // Also add to both panels
@@ -330,7 +330,7 @@ async function send() {
   let msg = inp.value.trim();
   if (!msg && !pendingFileContent) return;
 
-  if (pendingFileContent) msg = msg ? msg + '\n\n[ФАЙЛ: ' + document.getElementById('fprevname').textContent + ']\n' + pendingFileContent : '[ФАЙЛ: ' + document.getElementById('fprevname').textContent + ']\n' + pendingFileContent;
+  if (pendingFileContent) msg = msg ? msg + '\\n\\n[ФАЙЛ: ' + document.getElementById('fprevname').textContent + ']\\n' + pendingFileContent : '[ФАЙЛ: ' + document.getElementById('fprevname').textContent + ']\\n' + pendingFileContent;
 
   inp.value = '';
   btn.disabled = true;
@@ -386,7 +386,7 @@ async function send() {
 function speak(text, agent) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text.replace(/\[.*?\]/g,''));
+  const u = new SpeechSynthesisUtterance(text.replace(/\\[.*?\\]/g,''));
   u.lang = 'bg-BG';
   u.rate = 0.88;
   u.pitch = agent==='c' ? 0.75 : 1.1;
