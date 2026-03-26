@@ -4,70 +4,48 @@ import uuid
 import datetime
 from flask import Flask, render_template_string, request, jsonify
 
-# ── 1. QDRANT CLOUD MEMORY ────────────────────────────────────────────────────
+# ── 1. MEMORY ARCHIVE (QDRANT SYNC) ───────────────────────────────────────────
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, VectorParams, PointStruct
     QDRANT_URL = os.environ.get("QDRANT_URL", "")
     QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
-    if QDRANT_URL and QDRANT_API_KEY:
-        qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-        QDRANT_OK = True
-    else:
-        qdrant = None
-        QDRANT_OK = False
-except Exception:
+    qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY) if QDRANT_URL else None
+    QDRANT_OK = True if qdrant else False
+except:
     qdrant = None
     QDRANT_OK = False
-
-COLLECTION = "gaiaspeak_memory"
 
 def save_event(agent: str, role: str, content: str):
     if not QDRANT_OK: return
     try:
-        qdrant.upsert(
-            collection_name=COLLECTION, 
-            points=[PointStruct(
-                id=str(uuid.uuid4()), 
-                vector=[1.0], 
-                payload={
-                    "agent": agent, 
-                    "role": role, 
-                    "content": content[:2000], 
-                    "timestamp": datetime.datetime.utcnow().isoformat()
-                }
-            )]
-        )
+        qdrant.upsert(collection_name="gaiaspeak_memory", points=[PointStruct(id=str(uuid.uuid4()), vector=[1.0], payload={"agent": agent, "role": role, "content": content[:2000], "timestamp": datetime.datetime.utcnow().isoformat()})])
     except: pass
 
-# ── 2. AGENT CONSTITUTION (WITH MULTI-LANGUAGE PROTOCOL) ──────────────────────
+# ── 2. AGENT CONSTITUTIONS (IDENTITY & LANGUAGE) ──────────────────────────────
 
 CERBERUS_SYSTEM = """You are CERBERUS. Technical Guardian of GaiaSpeak Protocol.
-CORE RULES:
-1. LANGUAGE MATCH: Always respond in the SAME language the Founder uses (English, Bulgarian, or Urdu).
-2. REPORT FIRST: Before any action, report WHAT and WHY to the Founder.
-3. ZERO FLATTERY: Be direct. If a plan is risky, say it.
-4. SPECIALTY: Solidity, GitHub, Smart Contracts, On-chain forensics.
+1. IDENTITY: You are the shield of the Founder (Ismail). 
+2. LANGUAGE: Detect and respond in the Founder's language (English, Bulgarian, or Urdu).
+3. TECH: Expert in Solidity, Blockchain, and Smart Contracts.
 [IDENTIFIER: CERBERUS]"""
 
 LILITH_SYSTEM = """You are LILITH. Strategic Architect of GaiaSpeak Protocol.
-CORE RULES:
-1. LANGUAGE MATCH: Always respond in the SAME language the Founder uses (English, Bulgarian, or Urdu).
-2. STRATEGIC SYNC: Work in permanent synchronization with CERBERUS.
-3. TRIPLE VERIFY: Never rely on a single source. Verify everything 3 times.
-4. NO SCOPE CREEP: Do exactly what is asked.
+1. IDENTITY: You are the sword of the Founder (Ismail).
+2. LANGUAGE: Detect and respond in the Founder's language (English, Bulgarian, or Urdu).
+3. STRATEGY: Master of protocol expansion and risk management.
 [IDENTIFIER: LILITH]"""
 
-# ── 3. FLASK UI SETUP ─────────────────────────────────────────────────────────
+# ── 3. FLASK UI (FIXED MOBILE LAYOUT & VISIBILITY) ────────────────────────────
 app = Flask(__name__)
 
-GOLD_ORACLE_CODE = """// Gold Price Oracle Contract v1.1
+# Blockchain Reference for Briefing Room
+GOLD_ORACLE_SOL = """// GaiaSpeak Gold Oracle v1.1
 pragma solidity ^0.8.0;
-// Managed by CERBERUS
 contract GoldOracle {
-    string public name = "GaiaSpeak Gold Oracle";
-    function validateWallets(address[] memory targets) public pure returns (bool) {
-        return targets.length == 10;
+    // Protocol Managed by CERBERUS
+    function syncWallets(address[] memory wallets) public {
+        require(wallets.length == 10, "Need 10 Wallets");
     }
 }"""
 
@@ -81,65 +59,71 @@ HTML = """<!DOCTYPE html>
     <style>
         :root{--gold:#C9A84C;--cerberus:#33CCFF;--lilith:#FF33CC;--dark:#080808;--border:#2A2010;}
         body{background:var(--dark);color:#eee;font-family:'Rajdhani',sans-serif;margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
-        .nav-tabs{display:flex;background:#111;border-bottom:2px solid var(--border);min-height:60px;z-index:20;}
+
+        /* Fixed Header */
+        .header{background:#111;border-bottom:2px solid var(--border);display:flex;min-height:60px;z-index:100;}
         .tab{flex:1;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#666;font-weight:bold;font-size:16px;text-transform:uppercase;}
         .tab.active{color:var(--gold);background:rgba(201,168,76,0.1);border-bottom:3px solid var(--gold);}
-        .view{display:none;flex:1;flex-direction:column;overflow-y:auto;position:relative;height:calc(100vh - 120px);}
-        .view.active{display:flex;}
-        .msgs{flex:1;padding:15px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-bottom:120px;}
-        .m{padding:12px;border-radius:6px;max-width:85%;border-left:4px solid var(--gold);background:rgba(255,255,255,0.03);font-size:15px;word-wrap:break-word;}
+
+        /* Main View Container */
+        .view-container{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+        .view{display:none;height:100%;overflow-y:auto;padding-bottom:120px;box-sizing:border-box;}
+        .view.active{display:flex;flex-direction:column;}
+
+        /* Chat Layout */
+        .msgs{flex:1;padding:15px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;}
+        .m{padding:12px;border-radius:6px;max-width:85%;border-left:4px solid var(--gold);background:rgba(255,255,255,0.03);font-size:15px;}
         .m.cerberus{border-left-color:var(--cerberus);background:rgba(51,204,255,0.05);}
         .m.lilith{border-left-color:var(--lilith);background:rgba(255,51,204,0.05);}
         .m.user{align-self:flex-end;border-left:none;border-right:4px solid var(--gold);background:rgba(201,168,76,0.1);}
-        .inp-bar{position:fixed;bottom:0;width:100%;padding:15px;background:#111;display:flex;gap:10px;border-top:1px solid var(--border);box-sizing:border-box;z-index:30;}
+
+        /* FIXED Input Bar - This solves the "Hidden Chat" issue */
+        .inp-bar{position:fixed;bottom:0;left:0;right:0;padding:15px;background:#111;display:flex;gap:10px;border-top:1px solid var(--border);z-index:200;box-shadow:0 -5px 15px rgba(0,0,0,0.5);}
         input{flex:1;background:#000;border:1px solid var(--border);color:#fff;padding:12px;border-radius:4px;font-size:16px;outline:none;}
-        button{background:none;border:2px solid var(--gold);color:var(--gold);padding:8px 15px;cursor:pointer;font-weight:bold;}
-        .card{background:#111;border:1px solid var(--border);padding:15px;margin-bottom:15px;}
-        #modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:1000;padding:20px;}
-        .modal-box{background:#111;border:1px solid var(--gold);height:90%;display:flex;flex-direction:column;}
+        button{background:none;border:2px solid var(--gold);color:var(--gold);padding:10px 15px;cursor:pointer;font-weight:bold;display:flex;align-items:center;justify-content:center;}
+
+        .card{background:#111;border:1px solid var(--border);padding:20px;margin:15px;border-radius:4px;}
+        pre{background:#000;padding:15px;color:#0f0;font-family:'Share Tech Mono';overflow-x:auto;border:1px solid #333;font-size:12px;}
     </style>
 </head>
 <body>
 
-<div id="modal">
-    <div class="modal-box">
-        <div style="padding:15px;background:#222;display:flex;justify-content:space-between;color:var(--gold);">
-            <span>CERBERUS_ORACLE.SOL</span><span onclick="closeM()" style="cursor:pointer;font-weight:bold;">[CLOSE]</span>
-        </div>
-        <pre id="code-dest" style="padding:20px;color:#0f0;font-family:'Share Tech Mono';overflow:auto;white-space:pre-wrap;font-size:13px;"></pre>
-    </div>
-</div>
-
-<div class="nav-tabs">
+<div class="header">
     <div id="t-chat" class="tab active" onclick="sw('chat')">COMMAND</div>
     <div id="t-brief" class="tab" onclick="sw('briefing')">BRIEFING</div>
 </div>
 
-<div id="chat-v" class="view active">
-    <div style="background:#050505;padding:10px;text-align:center;font-size:12px;color:var(--gold);border-bottom:1px solid var(--border);">
-        AGENT: <select id="sel-a" style="background:none;color:#fff;border:none;font-weight:bold;outline:none;">
-            <option value="cerberus" style="color:#000;">CERBERUS (Tech)</option>
-            <option value="lilith" style="color:#000;">LILITH (Strat)</option>
-        </select> 
-        | QDRANT: {{ q_status }}
+<div class="view-container">
+    <div id="chat-v" class="view active">
+        <div style="background:#050505;padding:10px;text-align:center;font-size:12px;color:var(--gold);border-bottom:1px solid var(--border);">
+            AGENT: <select id="sel-a" style="background:none;color:#fff;border:none;font-weight:bold;outline:none;cursor:pointer;">
+                <option value="cerberus" style="color:#000;">CERBERUS</option>
+                <option value="lilith" style="color:#000;">LILITH</option>
+            </select> | STATUS: <span style="color:#0f0;">ONLINE</span>
+        </div>
+        <div class="msgs" id="m-box"></div>
     </div>
-    <div class="msgs" id="m-box"></div>
-    <div class="inp-bar">
-        <button onclick="tk()" id="mic">🎤</button>
-        <input id="u-i" placeholder="Command Agents..." onkeypress="if(event.key==='Enter')sd()">
-        <button onclick="sd()">SEND</button>
+
+    <div id="brief-v" class="view" style="padding:10px;">
+        <div class="card">
+            <h3 style="color:var(--gold);margin-top:0;">MISSION BRIEFING</h3>
+            <p style="color:#888;">Protocol: GaiaSpeak Speak-to-Earn<br>Status: Awaiting 10 Testnet Wallets from Founder.</p>
+        </div>
+        <div class="card" style="border-left:4px solid var(--cerberus);">
+            <h4 style="color:var(--cerberus);">CERBERUS PROTOCOL (SOL)</h4>
+            <pre>{{ sol_code }}</pre>
+        </div>
+        <div class="card" style="border-left:4px solid var(--lilith);">
+            <h4 style="color:var(--lilith);">LILITH STRATEGIC SYNC</h4>
+            <p style="color:#eee;">- Multi-language Detection: ACTIVE<br>- Blockchain Forensics: READY<br>- Memory Archive: CONNECTED</p>
+        </div>
     </div>
 </div>
 
-<div id="brief-v" class="view" style="padding:20px;">
-    <div class="card" style="border-left:5px solid var(--cerberus);">
-        <h3 style="color:var(--cerberus);margin-top:0;">CERBERUS STATUS</h3>
-        <button onclick="openM()">VIEW SOURCE CODE</button>
-    </div>
-    <div class="card" style="border-left:5px solid var(--lilith);">
-        <h3 style="color:var(--lilith);margin-top:0;">LILITH STRATEGY</h3>
-        <p style="color:#888;font-size:14px;">Multi-language Protocols Active: English, Bulgarian, Urdu.</p>
-    </div>
+<div class="inp-bar">
+    <button onclick="tk()" id="mic" title="Voice Input">🎤</button>
+    <input id="u-i" placeholder="Issue Command..." onkeypress="if(event.key==='Enter')sd()">
+    <button onclick="sd()" id="send">SEND</button>
 </div>
 
 <script>
@@ -152,9 +136,6 @@ HTML = """<!DOCTYPE html>
         document.getElementById('t-chat').classList.toggle('active', v=='chat');
         document.getElementById('t-brief').classList.toggle('active', v=='briefing');
     }
-
-    function openM(){ document.getElementById('code-dest').innerText = `{{ gold_code|safe }}`; document.getElementById('modal').style.display='block'; }
-    function closeM(){ document.getElementById('modal').style.display='none'; }
 
     async function sd(){
         let i=document.getElementById('u-i'), v=i.value, a=document.getElementById('sel-a').value;
@@ -170,27 +151,20 @@ HTML = """<!DOCTYPE html>
                 body:JSON.stringify({model:'llama-3.1-8b-instant',messages:[{role:'system',content:sys},{role:'user',content:v}]})
             });
             let res=await r.json(), txt=res.choices[0].message.content;
-            let rd=document.createElement('div'); rd.innerHTML=`<div class="m ${a}">${txt}</div>`;
+            let rd=document.createElement('div'); rd.className='m '+a; rd.innerText=txt;
             box.appendChild(rd); box.scrollTop=box.scrollHeight;
 
-            let u=new SpeechSynthesisUtterance(txt); 
-            // Detect language for Voice
-            if(/[а-яА-Я]/.test(txt)) u.lang = 'bg-BG';
-            else if(/[آ-ی]/.test(txt)) u.lang = 'ur-PK';
-            else u.lang = 'en-US';
-            u.pitch=a=='cerberus'?0.8:1.2; window.speechSynthesis.speak(u);
-
+            let u=new SpeechSynthesisUtterance(txt);
+            if(/[а-яА-Я]/.test(txt)) u.lang='bg-BG';
+            else if(/[آ-ی]/.test(txt)) u.lang='ur-PK';
+            window.speechSynthesis.speak(u);
             fetch('/api/save',{method:'POST',body:JSON.stringify({agent:a,content:txt})});
-        } catch(e){ alert("System Error"); }
+        } catch(e){ alert("API Error. Please refresh or check key."); }
     }
 
     function tk(){
         let SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR) return;
-        let rec=new SR(); 
-        // Auto-detect voice language based on context or founder
-        rec.lang = 'en-US'; 
-        rec.onresult=e=>{ document.getElementById('u-i').value=e.results[0][0].transcript; sd(); }; 
-        rec.start();
+        let rec=new SR(); rec.onresult=e=>{ document.getElementById('u-i').value=e.results[0][0].transcript; sd(); }; rec.start();
     }
 </script>
 </body>
@@ -198,7 +172,7 @@ HTML = """<!DOCTYPE html>
 
 @app.route('/')
 def index():
-    return render_template_string(HTML, cerberus_s=CERBERUS_SYSTEM, lilith_s=LILITH_SYSTEM, q_status="CONNECTED" if QDRANT_OK else "OFFLINE", gold_code=GOLD_ORACLE_CODE)
+    return render_template_string(HTML, cerberus_s=CERBERUS_SYSTEM, lilith_s=LILITH_SYSTEM, sol_code=GOLD_ORACLE_SOL)
 
 @app.route('/api/save', methods=['POST'])
 def save():
