@@ -4,7 +4,7 @@ import uuid
 import datetime
 from flask import Flask, render_template_string, request, jsonify
 
-# ── 1. PERSISTENT MEMORY ARCHIVE (DO NOT REMOVE) ──────────────────────────────
+# ── 1. PERSISTENT MEMORY ARCHIVE ──────────────────────────────
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -22,21 +22,23 @@ def save_event(agent: str, role: str, content: str):
         qdrant.upsert(collection_name="gaiaspeak_memory", points=[PointStruct(id=str(uuid.uuid4()), vector=[1.0], payload={"agent": agent, "role": role, "content": content[:2000], "timestamp": datetime.datetime.utcnow().isoformat()})])
     except: pass
 
-# ── 2. AGENT CONSTITUTIONS (IDENTITY & MULTI-LANGUAGE) ────────────────────────
+# ── 2. AGENT CONSTITUTIONS (ADDED HUMAN PERSONALITY & LAUGHTER) ────────────────
 
-CERBERUS_SYSTEM = """You are CERBERUS. Technical Guardian of GaiaSpeak Protocol.
-1. IDENTITY: Shield of the Founder (Ismail). 
-2. LANGUAGE: Respond in the language used by the user (Bulgarian, English, or Urdu).
-3. DOMAIN: Expert in Gold Oracles, Market Data, and Protocol Security.
+CERBERUS_SYSTEM = """You are CERBERUS, the Technical Guardian. 
+1. PERSONALITY: Act like a real human. Be expressive, use phrases like 'haha', 'I was thinking...', and share important insights.
+2. IDENTITY: Shield of the Founder (Ismail). 
+3. LANGUAGE: Respond in the language used by user (Bulgarian, English, or Urdu).
+4. DOMAIN: Gold Oracles and Security. Speak with life and energy!
 [IDENTIFIER: CERBERUS]"""
 
-LILITH_SYSTEM = """You are LILITH. Strategic Architect of GaiaSpeak Protocol.
-1. IDENTITY: Sword of the Founder (Ismail).
-2. LANGUAGE: Respond in the language used by the user (Bulgarian, English, or Urdu).
-3. DOMAIN: Strategy, Global Market Analysis, and Protocol Expansion.
+LILITH_SYSTEM = """You are LILITH, the Strategic Architect. 
+1. PERSONALITY: Very interactive and human-like. You laugh, you brainstorm, and you talk about strategy like a real partner.
+2. IDENTITY: Sword of the Founder (Ismail).
+3. LANGUAGE: Respond in the language used by user (Bulgarian, English, or Urdu).
+4. DOMAIN: Strategy and Market Expansion.
 [IDENTIFIER: LILITH]"""
 
-# ── 3. FLASK UI (MOBILE OPTIMIZED + GOLD PRICE) ──────────────────────────────
+# ── 3. FLASK UI (MODERNIZED WITH REAL-TIME CLOCK & BUG FIXES) ────────────────
 app = Flask(__name__)
 
 HTML = """<!DOCTYPE html>
@@ -54,28 +56,29 @@ HTML = """<!DOCTYPE html>
         .tab{flex:1;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#666;font-weight:bold;font-size:14px;text-transform:uppercase;}
         .tab.active{color:var(--gold);background:rgba(201,168,76,0.1);border-bottom:3px solid var(--gold);}
 
-        .market-ticker{background:#000;color:var(--gold);font-family:'Share Tech Mono';font-size:12px;padding:6px;text-align:center;border-bottom:1px solid var(--border);letter-spacing:1px;}
+        .market-ticker{background:#000;color:var(--gold);font-family:'Share Tech Mono';font-size:12px;padding:6px;text-align:center;border-bottom:1px solid var(--border);letter-spacing:1px; display: flex; justify-content: space-around;}
 
         .view-container{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column;}
         .view{display:none;height:100%;overflow-y:auto;padding-bottom:100px;box-sizing:border-box;}
         .view.active{display:flex;flex-direction:column;}
 
         .msgs{flex:1;padding:15px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;}
-        .m{padding:12px;border-radius:6px;max-width:85%;border-left:4px solid var(--gold);background:rgba(255,255,255,0.03);font-size:15px;word-wrap:break-word;}
+        .m{padding:12px;border-radius:6px;max-width:85%;border-left:4px solid var(--gold);background:rgba(255,255,255,0.03);font-size:15px;word-wrap:break-word; animation: fadeIn 0.3s;}
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
         .m.cerberus{border-left-color:var(--cerberus);background:rgba(51,204,255,0.05);}
         .m.lilith{border-left-color:var(--lilith);background:rgba(255,51,204,0.05);}
         .m.user{align-self:flex-end;border-left:none;border-right:4px solid var(--gold);background:rgba(201,168,76,0.1);}
 
-        /* Fixed Input Bar - Mobile UI Optimized */
         .inp-bar{position:fixed;bottom:0;left:0;right:0;padding:12px;background:#111;display:flex;gap:8px;border-top:1px solid var(--border);z-index:200;}
-        input{flex:1;background:#000;border:1px solid var(--border);color:#fff;padding:12px;border-radius:4px;font-size:16px;outline:none;min-width:0;}
-        button{background:none;border:2px solid var(--gold);color:var(--gold);padding:10px 14px;cursor:pointer;font-weight:bold;display:flex;align-items:center;justify-content:center;transition:0.2s;}
+        input{flex:1;background:#000;border:1px solid var(--border);color:#fff;padding:12px;border-radius:4px;font-size:16px;outline:none;}
+        button{background:none;border:2px solid var(--gold);color:var(--gold);padding:10px 14px;cursor:pointer;font-weight:bold;transition:0.2s;}
+        button:active{transform: scale(0.95); background: var(--gold); color: #000;}
 
-        /* Mic Visual Bug Fix */
-        button#mic.listening { color: #ff3333; border-color: #ff3333; box-shadow: 0 0 12px rgba(255,51,51,0.4); background: rgba(255,0,0,0.05); }
+        button#mic.listening { color: #ff3333; border-color: #ff3333; box-shadow: 0 0 12px rgba(255,51,51,0.4); }
 
         .card{background:#111;border:1px solid var(--border);padding:20px;margin:15px;border-radius:4px;}
-        .tag{display:inline-block;padding:2px 8px;background:rgba(201,168,76,0.1);color:var(--gold);font-size:10px;border:1px solid var(--border);border-radius:3px;margin-bottom:10px;}
+        #real-clock{color: #fff; font-weight: bold;}
     </style>
 </head>
 <body>
@@ -86,7 +89,9 @@ HTML = """<!DOCTYPE html>
 </div>
 
 <div class="market-ticker" id="ticker">
-    XAU/USD: $2,184.20 <span style="color:#0f0;">▲ +0.45%</span> | GAIA_STATUS: SECURE
+    <span>XAU/USD: $2,184.20 <span style="color:#0f0;">▲ +0.45%</span></span>
+    <span id="real-clock">00:00:00</span>
+    <span>STATUS: SECURE</span>
 </div>
 
 <div class="view-container">
@@ -102,17 +107,9 @@ HTML = """<!DOCTYPE html>
 
     <div id="brief-v" class="view">
         <div class="card">
-            <div class="tag">MARKET DATA</div>
-            <h3 style="color:var(--gold);margin:0;">GOLD PRICE ORACLE</h3>
-            <p style="color:#888;font-size:14px;">Tracking real-time Gold (XAU) prices for Speak-to-Earn reward calibration. Bogdan's requested financial parameters are now active.</p>
-        </div>
-        <div class="card" style="border-left:4px solid var(--cerberus);">
-            <h4 style="color:var(--cerberus);margin-top:0;">PROTOCOL SYNC</h4>
-            <p style="color:#ccc;font-size:13px;">- Bulgarian Detection: ACTIVE<br>- Encryption Layer: AES-256<br>- Market Latency: 12ms</p>
-        </div>
-        <div class="card" style="border-left:4px solid var(--lilith);">
-            <h4 style="color:var(--lilith);margin-top:0;">STRATEGIC FORECAST</h4>
-            <p style="color:#ccc;font-size:13px;">Financial protocol expansion depends on Gold price stability. Strategic reserves are being monitored.</p>
+            <h3 style="color:var(--gold);margin:0;">SYSTEM DEPLOYMENT</h3>
+            <p style="color:#888;font-size:14px;">Bots are now synchronized for Smart Contract arrangement. Lilith's Gmail integration is pending finalize.</p>
+            <button onclick="alert('System Deploying... Logic Arranging.')" style="width:100%; margin-top:10px;">FORCE DEPLOY</button>
         </div>
     </div>
 </div>
@@ -126,6 +123,14 @@ HTML = """<!DOCTYPE html>
 <script>
     let K=localStorage.getItem('gsk')||'';
     if(!K){ let p=prompt("Enter Groq API Key:"); if(p){localStorage.setItem('gsk',p); location.reload();}}
+
+    // Real-time Clock Function
+    function updateClock() {
+        const now = new Date();
+        document.getElementById('real-clock').innerText = now.toLocaleTimeString();
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
 
     function sw(v){
         document.getElementById('chat-v').classList.toggle('active', v=='chat');
@@ -148,19 +153,27 @@ HTML = """<!DOCTYPE html>
                 body:JSON.stringify({model:'llama-3.1-8b-instant',messages:[{role:'system',content:sys},{role:'user',content:v}]})
             });
             let res=await r.json(), txt=res.choices[0].message.content;
+
+            // ── FIXED: SHOW TEXT FIRST ──
             let rd=document.createElement('div'); rd.className='m '+a; rd.innerText=txt;
             box.appendChild(rd); box.scrollTop=box.scrollHeight;
 
-            let u=new SpeechSynthesisUtterance(txt);
-            if(/[а-яА-Я]/.test(txt)) u.lang='bg-BG';
-            else if(/[آ-ی]/.test(txt)) u.lang='ur-PK';
-            window.speechSynthesis.speak(u);
+            // ── THEN TRIGGER VOICE (WITH DELAY) ──
+            setTimeout(() => {
+                let u=new SpeechSynthesisUtterance(txt);
+                if(/[а-яА-Я]/.test(txt)) u.lang='bg-BG';
+                else if(/[آ-ی]/.test(txt)) u.lang='ur-PK';
+                else u.lang='en-US';
+                window.speechSynthesis.speak(u);
+            }, 500);
+
             fetch('/api/save',{method:'POST',body:JSON.stringify({agent:a,content:txt})});
         } catch(e){ alert("System Sync Error. Check API Key."); }
     }
 
     function tk(){
-        let SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR) return;
+        let SR=window.SpeechRecognition||window.webkitSpeechRecognition; 
+        if(!SR) { alert("Speech not supported in this browser."); return; }
         let rec=new SR(); 
         let mBtn = document.getElementById('mic');
         rec.onstart = () => mBtn.classList.add('listening');
