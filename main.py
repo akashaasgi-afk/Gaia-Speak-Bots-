@@ -22,12 +22,20 @@ def save_event(agent: str, role: str, content: str):
         qdrant.upsert(collection_name="gaiaspeak_memory", points=[PointStruct(id=str(uuid.uuid4()), vector=[1.0], payload={"agent": agent, "role": role, "content": content[:2000], "timestamp": datetime.datetime.utcnow().isoformat()})])
     except: pass
 
-# ── 2. AGENT CONSTITUTIONS ───────────────────────────────────────────────────
+# ── 2. AGENT CONSTITUTIONS (STRICT LANGUAGE LOGIC) ───────────────────────────
 
-CERBERUS_SYSTEM = """You are CERBERUS, the Technical Guardian. Expressive, human-like. RENDER technical solutions. [IDENTIFIER: CERBERUS]"""
-LILITH_SYSTEM = """You are LILITH, the Strategic Architect. Charming, sharp partner. RENDER strategy. [IDENTIFIER: LILITH]"""
+# یہاں ہم نے بوگدان کی شرط ڈال دی ہے کہ جس زبان میں پوچھا جائے اسی میں جواب ملے
+CERBERUS_SYSTEM = """You are CERBERUS, the Technical Guardian. 
+STRICT RULE: Always respond in the SAME language the user uses. 
+If asked in English, answer in English. If asked in Bulgarian, answer in Bulgarian. 
+Never use Russian. [IDENTIFIER: CERBERUS]"""
 
-# ── 3. FLASK UI (MOBILE OPTIMIZED + CENTER CLOCK) ────────────────────────────
+LILITH_SYSTEM = """You are LILITH, the Strategic Architect. 
+STRICT RULE: Always respond in the SAME language the user uses. 
+If asked in English, answer in English. If asked in Bulgarian, answer in Bulgarian. 
+Never use Russian. [IDENTIFIER: LILITH]"""
+
+# ── 3. FLASK UI (MOBILE OPTIMIZED + PERSISTENT MEMORY) ───────────────────────
 app = Flask(__name__)
 
 HTML = """<!DOCTYPE html>
@@ -45,7 +53,6 @@ HTML = """<!DOCTYPE html>
         .tab{flex:1;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#666;font-weight:bold;font-size:13px;text-transform:uppercase;}
         .tab.active{color:var(--gold);background:rgba(201,168,76,0.1);border-bottom:3px solid var(--gold);}
 
-        /* CENTERED CLOCK TICKER - MOBILE OPTIMIZED */
         .market-ticker{
             background:#000;
             color:var(--gold);
@@ -66,7 +73,6 @@ HTML = """<!DOCTYPE html>
         .m.lilith{border-left-color:var(--lilith);background:rgba(255,51,204,0.05);}
         .m.user{align-self:flex-end;border-left:none;border-right:4px solid var(--gold);background:rgba(201,168,76,0.1);}
 
-        /* SEND BUTTON FIX: USES BOX-SIZING AND FLEX WRAP PREVENTION */
         .inp-bar{
             position:fixed;
             bottom:0;
@@ -102,13 +108,11 @@ HTML = """<!DOCTYPE html>
         }
 
         button#mic.listening { color: #ff3333; border-color: #ff3333; animation: pulse 1s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-
         .card{background:#111;border:1px solid var(--border);padding:20px;margin:15px;border-radius:4px;}
         #real-clock{color: #fff; font-weight: bold; font-size: 14px;}
     </style>
 </head>
-<body>
+<body onload="initMemory()">
 
 <div class="header">
     <div id="t-chat" class="tab active" onclick="sw('chat')">COMMAND</div>
@@ -134,9 +138,10 @@ HTML = """<!DOCTYPE html>
 
     <div id="brief-v" class="view" style="display:none; padding-bottom: 100px;">
         <div class="card">
-            <h3 style="color:var(--gold);margin:0;">SYSTEM DEPLOYMENT</h3>
-            <p style="color:#888;font-size:14px;">All units are synchronized. Real-time rendering enabled for Ismail.</p>
-            <button onclick="alert('System Deploying... Logic Arranging.')" style="width:100%; margin-top:10px;">FORCE DEPLOY</button>
+            <h3 style="color:var(--gold);margin:0;">SYSTEM ARCHIVE</h3>
+            <p style="color:#888;font-size:14px;">Download and export all command logs.</p>
+            <button onclick="downloadLogs()" style="width:100%; margin-top:10px; background:rgba(201,168,76,0.2);">📥 DOWNLOAD LOGS (.TXT)</button>
+            <button onclick="clearHistory()" style="width:100%; margin-top:10px; border-color:#ff3333; color:#ff3333;">🗑️ CLEAR MEMORY</button>
         </div>
     </div>
 </div>
@@ -153,6 +158,36 @@ HTML = """<!DOCTYPE html>
 
     setInterval(() => { document.getElementById('real-clock').innerText = new Date().toLocaleTimeString(); }, 1000);
 
+    // ── MEMORY LOGIC ──
+    function initMemory() {
+        const history = JSON.parse(localStorage.getItem('gaia_history') || '[]');
+        const box = document.getElementById('m-box');
+        history.forEach(item => {
+            let d = document.createElement('div');
+            d.innerHTML = `<div class="m ${item.role}">${item.text}</div>`;
+            box.appendChild(d);
+        });
+        box.scrollTop = box.scrollHeight;
+    }
+
+    function saveToLocal(role, text) {
+        const history = JSON.parse(localStorage.getItem('gaia_history') || '[]');
+        history.push({role, text});
+        localStorage.setItem('gaia_history', JSON.stringify(history));
+    }
+
+    function clearHistory() { if(confirm("Clear all chat history?")){ localStorage.removeItem('gaia_history'); location.reload(); } }
+
+    function downloadLogs() {
+        const history = JSON.parse(localStorage.getItem('gaia_history') || '[]');
+        let content = history.map(h => `[${h.role.toUpperCase()}]: ${h.text}`).join('\\n\\n');
+        let blob = new Blob([content], {type: 'text/plain'});
+        let a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'GaiaSpeak_Logs.txt';
+        a.click();
+    }
+
     function sw(v){
         document.getElementById('chat-v').style.display = (v=='chat') ? 'flex' : 'none';
         document.getElementById('brief-v').style.display = (v=='briefing') ? 'block' : 'none';
@@ -165,6 +200,7 @@ HTML = """<!DOCTYPE html>
         if(!v)return; i.value=''; 
         let box=document.getElementById('m-box'), d=document.createElement('div');
         d.innerHTML=`<div class="m user">${v}</div>`; box.appendChild(d);
+        saveToLocal('user', v);
         box.scrollTop=box.scrollHeight;
 
         let sys = a=='cerberus' ? `{{ cerberus_s|safe }}` : `{{ lilith_s|safe }}`;
@@ -176,12 +212,14 @@ HTML = """<!DOCTYPE html>
             let res=await r.json(), txt=res.choices[0].message.content;
 
             let rd=document.createElement('div'); rd.className='m '+a; rd.innerText=txt;
-            box.appendChild(rd); box.scrollTop=box.scrollHeight;
+            box.appendChild(rd); 
+            saveToLocal(a, txt);
+            box.scrollTop=box.scrollHeight;
 
             setTimeout(() => {
                 window.speechSynthesis.cancel();
                 let u=new SpeechSynthesisUtterance(txt);
-                u.lang = /[а-яА-Я]/.test(txt) ? 'bg-BG' : (/[آ-ی]/.test(txt) ? 'ur-PK' : 'en-US');
+                u.lang = /[а-яА-Я]/.test(txt) ? 'bg-BG' : 'en-US';
                 window.speechSynthesis.speak(u);
             }, 300);
             fetch('/api/save',{method:'POST',body:JSON.stringify({agent:a,content:txt})});
