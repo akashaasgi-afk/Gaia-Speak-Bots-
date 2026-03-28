@@ -1,4 +1,4 @@
-modules = ["python-3.12"]
+modules = ["nodejs-18_x", "nodejs-20", "python-3.12"]
 [agent]
 expertMode = true
 
