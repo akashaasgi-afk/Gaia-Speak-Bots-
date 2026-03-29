@@ -1,21 +1,13 @@
-modules = [ "python-3.12", "nodejs-22"]
-[agent]
-expertMode = true
+# 1. Modules and Language Support
+modules = ["python-3.12", "nodejs-22"]
 
 [nix]
 channel = "stable-25_05"
+packages = ["inshellisense"]
 
+# 2. Replit UI and Run Button Configuration
 [workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start application"
+runButton = "Start application"
 
 [[workflows.workflow]]
 name = "Start application"
@@ -24,15 +16,21 @@ author = "agent"
 [workflows.workflow.metadata]
 outputType = "webview"
 
+# 3. Execution Logic (Installs dependencies then starts server)
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "gunicorn --bind=0.0.0.0:5000 --reuse-port --workers=1 main:app"
+args = "pip install flask gunicorn qdrant-client && gunicorn --bind=0.0.0.0:5000 --workers=1 main:app"
 waitForPort = 5000
 
+# 4. Port Mapping
 [[ports]]
 localPort = 5000
 externalPort = 80
 
+# 5. Global Deployment Settings
 [deployment]
 deploymentTarget = "autoscale"
-run = ["gunicorn", "--bind=0.0.0.0:5000", "--reuse-port", "main:app"]
+run = "gunicorn --bind=0.0.0.0:5000 --workers=1 main:app"
+
+[agent]
+expertMode = true
