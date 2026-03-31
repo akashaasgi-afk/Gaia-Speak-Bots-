@@ -51,20 +51,16 @@ def save_event(agent: str, role: str, content: str):
         pass
 
 
-# --- STRICT LANGUAGE ENFORCEMENT: ONLY ENGLISH & BULGARIAN ---
+# --- STRICT LANGUAGE ENFORCEMENT ---
 CERBERUS_SYSTEM = f"""You are CERBERUS. Technical Guardian. DEPLOYED ADDRESS: {CONTRACT_ADDRESS}. 
 If you suggest a command, wrap it in [CMD] tags. 
 STRICT RULE: Reply ONLY in English or Bulgarian. 
-- If user speaks English, reply in English. 
-- If user speaks Bulgarian, reply in Bulgarian. 
-DO NOT USE URDU OR ANY OTHER LANGUAGE."""
+DO NOT USE URDU."""
 
 LILITH_SYSTEM = f"""You are LILITH. Deployment Manager. 
 If you draft a report or email, wrap it in [EMAIL] tags. 
 STRICT RULE: Reply ONLY in English or Bulgarian. 
-- If user speaks English, reply in English. 
-- If user speaks Bulgarian, reply in Bulgarian. 
-DO NOT USE URDU OR ANY OTHER LANGUAGE."""
+DO NOT USE URDU."""
 
 app = Flask(__name__)
 
@@ -83,15 +79,17 @@ HTML = """
         .tab{flex:1;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#666;text-transform:uppercase;}
         .tab.active{color:var(--gold);background:rgba(201,168,76,0.1);border-bottom:3px solid var(--gold);}
         .market-ticker{background:#000;color:var(--gold);font-family:'Share Tech Mono';font-size:11px;padding:10px;border-bottom:1px solid var(--border);display: flex;justify-content: space-between;}
-        .msgs{flex:1;padding:15px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;background:#050505; padding-bottom: 120px;}
+        .msgs{flex:1;padding:15px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;background:#050505; padding-bottom: 150px;}
         .m{padding:12px;border-radius:6px;max-width:85%;border-left:4px solid var(--gold);background:rgba(255,255,255,0.03);font-size:15px;word-break:break-word;}
         .m.user{align-self:flex-end;border-left:none;border-right:4px solid var(--gold);background:rgba(201,168,76,0.1);}
         .action-btn{background:var(--success);color:#000;border:none;padding:8px;margin-top:10px;cursor:pointer;font-weight:bold;width:100%;border-radius:4px;}
-        .addr-box{font-size:10px; color:var(--success); background:rgba(0,255,136,0.1); padding:5px; border-radius:4px; margin-top:5px; border:1px solid var(--success); word-break:break-all;}
+        .addr-box{font-size:12px; color:var(--success); background:rgba(0,255,136,0.1); padding:10px; border-radius:4px; margin-top:5px; border:1px solid var(--success); word-break:break-all;}
         .inp-bar{position:fixed;bottom:0;width: 100%;padding: 15px;background:#111;display:flex;gap:8px;border-top:1px solid var(--gold);box-sizing: border-box;}
         input{flex:1;background:#000;border:1px solid var(--border);color:#fff;padding:12px;border-radius:4px;}
         button.exec{background:var(--gold);color:#000;border:none;padding:10px 20px;cursor:pointer;font-weight:bold;}
-        .voice-toggle { font-size: 10px; color: var(--gold); cursor: pointer; border: 1px solid var(--gold); padding: 2px 5px; border-radius: 4px; margin-left: 10px;}
+        .mic-btn{background:#333; border:1px solid var(--gold); color:var(--gold); padding:10px; border-radius:4px; cursor:pointer;}
+        .mic-active{background:red; color:white; animation: pulse 1s infinite;}
+        @keyframes pulse { 0% {opacity: 1;} 50% {opacity: 0.5;} 100% {opacity: 1;} }
     </style>
 </head>
 <body onload="initMemory()">
@@ -113,7 +111,7 @@ HTML = """
             <option value="cerberus">CERBERUS (Smart Contracts)</option>
             <option value="lilith">LILITH (Deployment)</option>
         </select>
-        <span class="voice-toggle" id="v-tog" onclick="toggleVoice()">VOICE: ON</span>
+        <button id="v-tog" onclick="toggleVoice()" style="background:none; border:none; color:var(--gold); cursor:pointer;">VOICE: ON</button>
     </div>
     <div class="msgs" id="m-box">
         <div class="m cerberus">System ready. Smart Contract deployed at: <div class="addr-box">{{addr}}</div></div>
@@ -131,14 +129,29 @@ HTML = """
 </div>
 
 <div class="inp-bar">
+    <button class="mic-btn" id="mic-btn" onclick="startSpeech()">🎤</button>
     <input id="u-i" placeholder="Command..." onkeypress="if(event.key==='Enter')sd()">
     <button class="exec" onclick="sd()">RUN</button>
-    <button onclick="exportData()" style="background:none; border:1px solid #444; color:#888; font-size:10px; padding:5px;">EXP</button>
 </div>
 
 <script>
     let voiceEnabled = true;
+    const recognition = (window.SpeechRecognition || window.webkitSpeechRecognition) ? new (window.SpeechRecognition || window.webkitSpeechRecognition)() : null;
+    if(recognition) { recognition.continuous = false; recognition.interimResults = false; }
+
     setInterval(() => { document.getElementById('real-clock').innerText = new Date().toLocaleTimeString(); }, 1000);
+
+    function startSpeech() {
+        if(!recognition) return alert("Mic not supported in this browser.");
+        recognition.start();
+        document.getElementById('mic-btn').classList.add('mic-active');
+        recognition.onresult = (e) => {
+            document.getElementById('u-i').value = e.results[0][0].transcript;
+            document.getElementById('mic-btn').classList.remove('mic-active');
+            sd();
+        };
+        recognition.onerror = () => document.getElementById('mic-btn').classList.remove('mic-active');
+    }
 
     function toggleVoice() {
         voiceEnabled = !voiceEnabled;
@@ -151,9 +164,7 @@ HTML = """
         window.speechSynthesis.cancel();
         let cleanText = text.replace(/\[.*?\]/g, '').replace(/<[^>]*>?/gm, '');
         let utterance = new SpeechSynthesisUtterance(cleanText);
-        // Detect Bulgarian for voice selection if possible
         utterance.lang = text.match(/[а-яА-Я]/) ? 'bg-BG' : 'en-US';
-        utterance.rate = 1.0;
         window.speechSynthesis.speak(utterance);
     }
 
@@ -185,10 +196,10 @@ HTML = """
         let html = txt;
         if(txt.includes('[CMD]')){
             let cmd = txt.match(/\[CMD\](.*?)\[\/CMD\]/)[1];
-            html += `<button class="action-btn" onclick="runCmd('${cmd}')">APPROVE & RUN: ${cmd}</button>`;
+            html += `<br><button class="action-btn" onclick="runCmd('${cmd}')">APPROVE & RUN: ${cmd}</button>`;
         }
         if(txt.includes('[EMAIL]')){
-            html += `<button class="action-btn" style="background:var(--lilith); color:white;" onclick="sendMail('${btoa(txt)}')">SEND REPORT TO BOGDAN</button>`;
+            html += `<br><button class="action-btn" style="background:var(--lilith); color:white;" onclick="sendMail('${btoa(txt)}')">SEND REPORT TO BOGDAN</button>`;
         }
         addMsg(html, agent, true);
     }
@@ -221,53 +232,6 @@ HTML = """
         document.getElementById('t-chat').classList.toggle('active', v=='chat');
         document.getElementById('t-brief').classList.toggle('active', v=='briefing');
     }
-
-    function exportData(){
-        let blob = new Blob([document.getElementById('m-box').innerText], {type:'text/plain'});
-        let a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='GaiaReport.txt'; a.click();
-    }
 </script>
 </body>
 </html>
-"""
-
-
-@app.route("/")
-def index():
-    return render_template_string(
-        HTML, addr=CONTRACT_ADDRESS, cerberus_s=CERBERUS_SYSTEM, lilith_s=LILITH_SYSTEM
-    )
-
-
-@app.route("/api/execute", methods=["POST"])
-def execute():
-    cmd = request.json.get("command")
-    try:
-        if not cmd.startswith(("npx hardhat", "git")):
-            return jsonify({"error": "Unauthorized command"})
-        result = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
-        return jsonify({"output": result.decode()})
-    except Exception as e:
-        return jsonify({"error": str(e)})
-
-
-@app.route("/api/send_email", methods=["POST"])
-def send_email():
-    content = request.json.get("content")
-    try:
-        msg = MIMEText(content)
-        msg["Subject"] = (
-            f"GaiaSpeak Mission Report - {datetime.datetime.now().strftime('%Y-%m-%d')}"
-        )
-        msg["From"] = SENDER_EMAIL
-        msg["To"] = RECIPIENT_EMAIL
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(SENDER_EMAIL, SENDER_PASS)
-            server.sendmail(SENDER_EMAIL, [RECIPIENT_EMAIL], msg.as_string())
-        return jsonify({"ok": True})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
