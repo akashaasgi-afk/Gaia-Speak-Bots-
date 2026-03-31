@@ -22,7 +22,6 @@ task = "shell.exec"
 args = "pip install flask gunicorn qdrant-client && gunicorn --bind=0.0.0.0:5000 --workers=1 main:app"
 waitForPort = 5000
 
-# 4. Port Mapping
 [[ports]]
 localPort = 5000
 externalPort = 80
