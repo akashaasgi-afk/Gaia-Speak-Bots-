@@ -134,7 +134,7 @@ HTML = """<!DOCTYPE html>
         .m.system{border-left-color:#666;font-size:12px;color:#aaa;font-family:'Share Tech Mono';}
         .action-btn{background:var(--success);color:#000;border:none;padding:8px;margin-top:10px;cursor:pointer;font-weight:bold;width:100%;border-radius:4px;font-family:'Rajdhani',sans-serif;font-size:14px;}
         .addr-box{font-size:12px;color:var(--success);background:rgba(0,255,136,0.1);padding:10px;border-radius:4px;margin-top:5px;border:1px solid var(--success);word-break:break-all;}
-        .inp-bar{position:fixed;bottom:0;width:100%;padding:12px;background:#111;display:flex;gap:8px;border-top:1px solid var(--gold);}
+        .inp-bar{position:fixed;bottom:0;width:100%;padding:12px;background:#111;display:flex;gap:8px;border-top:1px solid var(--gold);z-index:100;}
         .inp-bar input{flex:1;background:#000;border:1px solid var(--border);color:#fff;padding:12px;border-radius:4px;font-family:'Rajdhani',sans-serif;font-size:15px;}
         .inp-bar input:focus{outline:none;border-color:var(--gold);}
         .btn-run{background:var(--gold);color:#000;border:none;padding:10px 20px;cursor:pointer;font-weight:bold;font-family:'Rajdhani',sans-serif;font-size:15px;border-radius:4px;}
@@ -156,11 +156,34 @@ HTML = """<!DOCTYPE html>
         #key-err{color:#ff4444;font-size:12px;min-height:20px;margin-top:8px;}
         .brief-card{background:#111;border:1px solid var(--border);padding:15px;border-radius:8px;margin-bottom:15px;}
         .brief-card h3{color:var(--gold);margin-top:0;}
+
+        /* --- MOBILE RESPONSIVE FIX --- */
+        @media (max-width: 600px) {
+            .inp-bar {
+                padding: 10px !important;
+                gap: 5px !important;
+                flex-wrap: nowrap !important;
+                display: flex !important;
+            }
+            .inp-bar input {
+                padding: 10px !important;
+                font-size: 14px !important;
+                min-width: 0 !important;
+                flex: 1 !important;
+            }
+            .btn-mic {
+                padding: 10px 15px !important;
+                font-size: 18px !important;
+                display: block !important;
+            }
+            .btn-run {
+                padding: 10px 15px !important;
+            }
+        }
     </style>
 </head>
 <body>
 
-<!-- KEY ENTRY SCREEN -->
 <div id="key-screen">
     <div class="key-card">
         <h2>GAIASPEAK</h2>
@@ -172,7 +195,6 @@ HTML = """<!DOCTYPE html>
     </div>
 </div>
 
-<!-- MAIN UI (hidden until key validated) -->
 <div id="main-ui" style="display:none;flex-direction:column;height:100dvh;">
 
     <div class="header">
@@ -188,7 +210,6 @@ HTML = """<!DOCTYPE html>
         <span style="font-size:10px;color:#666">{{ addr }}</span>
     </div>
 
-    <!-- CHAT VIEW -->
     <div id="chat-v" class="view" style="display:flex;flex-direction:column;overflow:hidden;">
         <div class="agent-sel">
             AGENT:
@@ -205,7 +226,6 @@ HTML = """<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- BRIEFING VIEW -->
     <div id="brief-v" class="view" style="display:none;overflow-y:auto;padding:20px;">
         <div class="brief-card">
             <h3>РЕЗЕРВ СТАТУС</h3>
@@ -221,7 +241,6 @@ HTML = """<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- MEMORY VIEW -->
     <div id="mem-v" class="view" style="display:none;overflow-y:auto;padding:15px;">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
             <button onclick="loadMem('cerberus')" style="background:none;border:1px solid var(--cerberus);color:var(--cerberus);padding:6px 14px;cursor:pointer;border-radius:3px;font-family:'Rajdhani',sans-serif;">CERBERUS</button>
@@ -231,7 +250,7 @@ HTML = """<!DOCTYPE html>
         <div id="mem-list" style="display:flex;flex-direction:column;gap:8px;font-family:'Share Tech Mono';font-size:12px;"></div>
     </div>
 
-</div><!-- end main-ui -->
+</div>
 
 <div class="inp-bar" id="inp-bar" style="display:none;">
     <button class="btn-mic" id="mic-btn" onclick="startSpeech()">&#127908;</button>
@@ -240,19 +259,16 @@ HTML = """<!DOCTYPE html>
 </div>
 
 <script>
-    // ---- STATE ----
     let groqKey = '';
     let voiceEnabled = true;
     const CERBERUS_SYS = {{ cerberus_s|tojson }};
     const LILITH_SYS = {{ lilith_s|tojson }};
 
-    // ---- CLOCK ----
     setInterval(() => {
         const el = document.getElementById('clock');
         if (el) el.innerText = new Date().toLocaleTimeString();
     }, 1000);
 
-    // ---- KEY ACTIVATION ----
     window.addEventListener('DOMContentLoaded', () => {
         try {
             const saved = localStorage.getItem('gsk');
@@ -287,14 +303,12 @@ HTML = """<!DOCTYPE html>
 
     function showMain() {
         document.getElementById('key-screen').style.display = 'none';
-        const mu = document.getElementById('main-ui');
-        mu.style.display = 'flex';
+        document.getElementById('main-ui').style.display = 'flex';
         document.getElementById('inp-bar').style.display = 'flex';
         checkStatus();
         loadHistory();
     }
 
-    // ---- STATUS CHECK ----
     async function checkStatus() {
         try {
             const r = await fetch('/api/status');
@@ -312,7 +326,6 @@ HTML = """<!DOCTYPE html>
         } catch(e) {}
     }
 
-    // ---- VOICE ----
     const recognition = (window.SpeechRecognition || window.webkitSpeechRecognition)
         ? new (window.SpeechRecognition || window.webkitSpeechRecognition)() : null;
     if (recognition) { recognition.continuous = false; recognition.interimResults = false; }
@@ -344,7 +357,6 @@ HTML = """<!DOCTYPE html>
         window.speechSynthesis.speak(utt);
     }
 
-    // ---- HISTORY ----
     function loadHistory() {
         try {
             const h = JSON.parse(localStorage.getItem('gaia_history') || '[]');
@@ -367,7 +379,6 @@ HTML = """<!DOCTYPE html>
         box.innerHTML = '<div class="m cerberus">Историята е изчистена.</div>';
     }
 
-    // ---- CHAT ----
     async function sd() {
         const inp = document.getElementById('u-i');
         const v = inp.value.trim();
@@ -426,7 +437,6 @@ HTML = """<!DOCTYPE html>
         box.scrollTop = box.scrollHeight;
     }
 
-    // ---- COMMANDS ----
     async function runCmd(btn) {
         const cmd = btn.getAttribute('data-cmd');
         addMsg('Изпълняване: ' + cmd, 'system');
@@ -447,7 +457,6 @@ HTML = """<!DOCTYPE html>
         } catch(e) { addMsg('Грешка: ' + e.message, 'system'); }
     }
 
-    // ---- MEMORY ----
     async function saveEventToServer(agent, role, content) {
         try {
             await fetch('/api/memory/save', {
@@ -480,7 +489,6 @@ HTML = """<!DOCTYPE html>
         } catch(e) { list.innerHTML = '<div style="color:#ff4444">Грешка: ' + e.message + '</div>'; }
     }
 
-    // ---- VIEW SWITCH ----
     function sw(v) {
         ['chat', 'briefing', 'memory'].forEach(name => {
             const suffix = name === 'chat' ? 'chat' : name === 'briefing' ? 'brief' : 'mem';
