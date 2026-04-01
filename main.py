@@ -5,6 +5,8 @@ import datetime
 import subprocess
 import smtplib
 from email.mime.text import MIMEText
+# --- Naya Import for Security ---
+from werkzeug.utils import secure_filename
 from flask import Flask, render_template_string, request, jsonify
 
 # --- CONFIGURATION ---
@@ -12,6 +14,10 @@ CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 SENDER_EMAIL = "gaialilith60@gmail.com"
 RECIPIENT_EMAIL = "gaialilith60@gmail.com"
 SENDER_PASS = os.environ.get("GMAIL_APP_PASSWORD", "")
+# --- Upload Folder Configuration ---
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
 COLLECTION = "gaiaspeak_memory"
 VECTOR_DIM = 1
@@ -106,6 +112,8 @@ If you draft a report or email, wrap it in [EMAIL] tags.
 STRICT RULE: Reply ONLY in Bulgarian or English. DO NOT USE ANY OTHER LANGUAGE."""
 
 app = Flask(__name__)
+# --- Setting App Config for Uploads ---
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 HTML = """<!DOCTYPE html>
 <html lang="bg">
@@ -253,8 +261,13 @@ HTML = """<!DOCTYPE html>
 </div>
 
 <div class="inp-bar" id="inp-bar" style="display:none;">
+    <input type="file" id="file-inp" style="display:none;" multiple onchange="handleFileSelect()">
+    <button class="btn-mic" onclick="document.getElementById('file-inp').click()" style="background:#1a1a1a; border:1px solid var(--silver); color:var(--silver); margin-right:2px;">📎</button>
+
     <button class="btn-mic" id="mic-btn" onclick="startSpeech()">&#127908;</button>
     <input id="u-i" placeholder="Команда..." onkeypress="if(event.key==='Enter')sd()">
+
+    <button class="btn-run" style="background: #ff9800; margin-right: 5px;" onclick="uploadToServer()">DEPLOY</button>
     <button class="btn-run" onclick="sd()">RUN</button>
 </div>
 
@@ -498,6 +511,44 @@ HTML = """<!DOCTYPE html>
             if (tab) tab.classList.toggle('active', name === v);
         });
     }
+
+    // --- Naye JavaScript Functions for Backend Sync ---
+    function handleFileSelect() {
+        const files = document.getElementById('file-inp').files;
+        if(files.length > 0) {
+            addMsg(`Selected ${files.length} file(s) for deployment.`, 'system');
+        }
+    }
+
+    async function uploadToServer() {
+        const fileInp = document.getElementById('file-inp');
+        if (fileInp.files.length === 0) {
+            alert("Please select files using the clip icon first!");
+            return;
+        }
+
+        addMsg("Starting Deployment to GaiaSpeak Server...", "system");
+        const formData = new FormData();
+        for (const file of fileInp.files) {
+            formData.append('files[]', file);
+        }
+
+        try {
+            const r = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const res = await r.json();
+            if (res.ok) {
+                addMsg("SUCCESS: All files deployed to server protocols.", "cerberus");
+                fileInp.value = ""; // reset
+            } else {
+                addMsg("DEPLOYMENT ERROR: " + res.error, "system");
+            }
+        } catch (e) {
+            addMsg("CONNECTION ERROR: Could not reach backend.", "system");
+        }
+    }
 </script>
 </body>
 </html>"""
@@ -517,6 +568,25 @@ def index():
         cerberus_s=CERBERUS_SYSTEM,
         lilith_s=LILITH_SYSTEM
     )
+
+# --- Naya Backend Route for File Upload ---
+@app.route('/api/upload', methods=['POST'])
+def api_upload():
+    if 'files[]' not in request.files:
+        return jsonify({'ok': False, 'error': 'No file part'})
+
+    files = request.files.getlist('files[]')
+    saved_files = []
+
+    for file in files:
+        if file.filename == '':
+            continue
+        filename = secure_filename(file.filename)
+        path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(path)
+        saved_files.append(filename)
+
+    return jsonify({'ok': True, 'files': saved_files})
 
 @app.route('/api/status')
 def api_status():
