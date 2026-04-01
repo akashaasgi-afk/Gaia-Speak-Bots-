@@ -10,16 +10,17 @@ from email.mime.text import MIMEText
 from flask import Flask, render_template_string, request, jsonify
 from werkzeug.utils import secure_filename
 
-# --- OPTIONAL: sentence_transformers (not required to run) ---
+# --- OPTIONAL: sentence_transformers ---
 try:
     from sentence_transformers import SentenceTransformer
-    _embed_model = SentenceTransformer('all-MiniLM-L6-v2')
+    _st_model = SentenceTransformer('all-MiniLM-L6-v2')
     HAS_EMBEDDINGS = True
 except Exception:
-    _embed_model = None
+    SentenceTransformer = None
+    _st_model = None
     HAS_EMBEDDINGS = False
 
-# --- OPTIONAL: schedule (not required to run) ---
+# --- OPTIONAL: schedule ---
 try:
     import schedule as _schedule
     HAS_SCHEDULE = True
@@ -38,7 +39,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 COLLECTION = "gaiaspeak_memory"
 VECTOR_DIM = 384 if HAS_EMBEDDINGS else 1
 
-# --- QDRANT (optional — degrades gracefully if missing) ---
+# --- QDRANT ---
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.models import (
@@ -53,15 +54,15 @@ except Exception:
     qdrant = None
     QDRANT_OK = False
 
-# --- IN-MEMORY TASK QUEUE ---
+# --- TASK QUEUE ---
 tasks_queue = []
 pending_fixes = []
 
-# ---- HELPER FUNCTIONS ----
+# ---- HELPERS ----
 
 def get_vector(text):
-    if HAS_EMBEDDINGS and _embed_model:
-        return _embed_model.encode(text).tolist()
+    if HAS_EMBEDDINGS and _st_model:
+        return _st_model.encode(text).tolist()
     return [1.0]
 
 
@@ -97,10 +98,8 @@ def save_event(agent: str, role: str, content: str, event_type: str = "chat"):
                 id=str(uuid.uuid4()),
                 vector=get_vector(content),
                 payload={
-                    "agent": agent,
-                    "role": role,
-                    "content": content[:2000],
-                    "event_type": event_type,
+                    "agent": agent, "role": role,
+                    "content": content[:2000], "event_type": event_type,
                     "timestamp": datetime.datetime.utcnow().isoformat(),
                 }
             )]
@@ -118,10 +117,8 @@ def get_recent_events(agent: str = None, limit: int = 20):
             f = Filter(must=[FieldCondition(key="agent", match=MatchValue(value=agent))])
         results, _ = qdrant.scroll(
             collection_name=COLLECTION,
-            scroll_filter=f,
-            limit=limit,
-            with_payload=True,
-            with_vectors=False
+            scroll_filter=f, limit=limit,
+            with_payload=True, with_vectors=False
         )
         return [r.payload for r in results]
     except Exception:
@@ -146,7 +143,6 @@ def _task_worker():
     while True:
         for t in tasks_queue:
             if t.get("status") == "pending":
-                print(f"[worker] Processing: {t['task']}")
                 t["status"] = "done"
         time.sleep(10)
 
@@ -175,7 +171,6 @@ def _scheduler():
             _schedule.run_pending()
             time.sleep(60)
     else:
-        # Fallback: simple time-based check
         while True:
             now = datetime.datetime.now()
             if now.hour == 20 and now.minute == 0:
@@ -214,19 +209,15 @@ HTML = """<!DOCTYPE html>
         :root{--gold:#C9A84C;--silver:#C0C0C0;--cerberus:#33CCFF;--lilith:#FF33CC;--dark:#080808;--border:#2A2010;--ok:#00ff88;}
         *{box-sizing:border-box;margin:0;padding:0;}
         body{background:var(--dark);color:#eee;font-family:'Rajdhani',sans-serif;height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
-        /* HEADER */
         .hdr{background:#111;border-bottom:2px solid var(--border);display:flex;min-height:52px;}
         .tab{flex:1;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#555;text-transform:uppercase;font-size:13px;letter-spacing:1px;padding:10px 4px;border-bottom:3px solid transparent;transition:all .2s;}
         .tab.on{color:var(--gold);background:rgba(201,168,76,.08);border-bottom-color:var(--gold);}
-        /* STATUS BAR */
         .sbar{background:#000;color:var(--gold);font-family:'Share Tech Mono';font-size:11px;padding:6px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;}
         .badge{padding:1px 7px;border-radius:3px;font-size:10px;border:1px solid;}
         .b-ok{color:var(--ok);border-color:var(--ok);}
         .b-err{color:#f44;border-color:#f44;}
-        /* VIEWS */
         .view{flex:1;overflow:hidden;display:none;}
         .view.on{display:flex;flex-direction:column;}
-        /* CHAT */
         .agent-bar{background:#050505;padding:8px 12px;font-size:12px;color:var(--gold);display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--border);}
         .agent-bar select{background:#000;color:#fff;border:1px solid var(--border);padding:4px 8px;font-family:'Rajdhani',sans-serif;font-size:13px;}
         .btn-sm{background:none;border:1px solid var(--gold);color:var(--gold);padding:3px 10px;cursor:pointer;border-radius:3px;font-family:'Rajdhani',sans-serif;font-size:12px;}
@@ -237,7 +228,6 @@ HTML = """<!DOCTYPE html>
         .m.lilith{border-left-color:var(--lilith);}
         .m.system{border-left-color:#444;font-size:12px;color:#888;font-family:'Share Tech Mono';}
         .act-btn{background:var(--ok);color:#000;border:none;padding:7px;margin-top:9px;cursor:pointer;font-weight:700;width:100%;border-radius:4px;font-family:'Rajdhani',sans-serif;font-size:14px;}
-        /* INPUT BAR */
         .ibar{position:fixed;bottom:0;width:100%;padding:10px 12px;background:#111;display:flex;gap:8px;border-top:1px solid var(--gold);z-index:50;}
         .ibar input{flex:1;background:#000;border:1px solid var(--border);color:#fff;padding:11px;border-radius:4px;font-family:'Rajdhani',sans-serif;font-size:15px;}
         .ibar input:focus{outline:none;border-color:var(--gold);}
@@ -245,12 +235,10 @@ HTML = """<!DOCTYPE html>
         .btn-mic{background:#1a1a1a;border:1px solid var(--gold);color:var(--gold);padding:10px 13px;border-radius:4px;cursor:pointer;font-size:16px;}
         .btn-mic.rec{background:red;color:#fff;animation:pulse 1s infinite;}
         @keyframes pulse{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
-        /* SCROLLABLE VIEWS */
         .scroll-v{flex:1;overflow-y:auto;padding:16px;}
         .card{background:#111;border:1px solid var(--border);border-radius:7px;padding:15px;margin-bottom:14px;}
         .card h3{color:var(--gold);margin-bottom:10px;font-size:16px;letter-spacing:1px;}
         .mem-row{background:#0a0a0a;border:1px solid #1a1a1a;padding:8px 10px;border-radius:4px;margin-bottom:6px;font-family:'Share Tech Mono';font-size:11px;line-height:1.6;}
-        /* KEY SCREEN */
         #ks{position:fixed;inset:0;background:var(--dark);display:flex;align-items:center;justify-content:center;z-index:999;}
         .kc{background:#111;border:1px solid var(--gold);border-radius:8px;padding:40px;max-width:420px;width:90%;text-align:center;}
         .kc h2{color:var(--gold);letter-spacing:5px;font-size:22px;margin-bottom:6px;}
@@ -265,8 +253,6 @@ HTML = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-
-<!-- KEY SCREEN -->
 <div id="ks">
     <div class="kc">
         <h2>GAIASPEAK</h2>
@@ -279,7 +265,6 @@ HTML = """<!DOCTYPE html>
     </div>
 </div>
 
-<!-- MAIN -->
 <div id="ui" style="display:none;flex-direction:column;height:100dvh;">
     <div class="hdr">
         <div class="tab on" id="tc" onclick="sw('chat')">CMD</div>
@@ -293,7 +278,6 @@ HTML = """<!DOCTYPE html>
         <span id="qbadge" class="badge b-err">QDRANT: OFFLINE</span>
     </div>
 
-    <!-- CHAT -->
     <div class="view on" id="v-chat">
         <div class="agent-bar">
             AGENT:
@@ -310,17 +294,12 @@ HTML = """<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- TASKS -->
     <div class="view" id="v-tasks">
         <div class="scroll-v">
-            <div class="card">
-                <h3>TASK QUEUE</h3>
-                <div id="tlist"><span style="color:#555;font-size:13px;">Няма задачи.</span></div>
-            </div>
+            <div class="card"><h3>TASK QUEUE</h3><div id="tlist"><span style="color:#555;font-size:13px;">Няма задачи.</span></div></div>
         </div>
     </div>
 
-    <!-- MEMORY -->
     <div class="view" id="v-memory">
         <div class="scroll-v">
             <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
@@ -332,7 +311,6 @@ HTML = """<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- BRIEF -->
     <div class="view" id="v-brief">
         <div class="scroll-v">
             <div class="card">
@@ -351,7 +329,6 @@ HTML = """<!DOCTYPE html>
     </div>
 </div>
 
-<!-- INPUT BAR -->
 <div class="ibar" id="ibar" style="display:none;">
     <input type="file" id="fup" style="display:none;" multiple onchange="uploadFiles()">
     <button class="btn-mic" onclick="document.getElementById('fup').click()">&#128206;</button>
@@ -361,19 +338,13 @@ HTML = """<!DOCTYPE html>
 </div>
 
 <script>
-    // ---- CONSTANTS (injected server-side) ----
     const CSYS = {{ cerberus_s|tojson }};
     const LSYS = {{ lilith_s|tojson }};
     const MODEL = 'llama-3.1-8b-instant';
+    let gkey = '', voiceOn = true;
 
-    // ---- STATE ----
-    let gkey = '';
-    let voiceOn = true;
-
-    // ---- CLOCK ----
     setInterval(() => { const e = document.getElementById('clk'); if(e) e.innerText = new Date().toLocaleTimeString(); }, 1000);
 
-    // ---- KEY ACTIVATION ----
     window.addEventListener('DOMContentLoaded', () => {
         try { const k = localStorage.getItem('gsk'); if(k && k.startsWith('gsk_')){ gkey=k; showMain(); } } catch(e){}
     });
@@ -386,8 +357,7 @@ HTML = """<!DOCTYPE html>
         err.innerText = 'Проверка...';
         try {
             const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                method:'POST',
-                headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'},
+                method:'POST', headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'},
                 body:JSON.stringify({model:MODEL, messages:[{role:'user',content:'ping'}], max_tokens:3})
             });
             if(!r.ok){ err.innerText = 'Невалиден ключ ('+r.status+')'; return; }
@@ -399,211 +369,133 @@ HTML = """<!DOCTYPE html>
 
     function showMain() {
         document.getElementById('ks').style.display = 'none';
-        const ui = document.getElementById('ui');
-        ui.style.display = 'flex';
+        document.getElementById('ui').style.display = 'flex';
         document.getElementById('ibar').style.display = 'flex';
-        checkStatus();
-        restoreHistory();
+        checkStatus(); restoreHistory();
     }
 
-    // ---- STATUS ----
     async function checkStatus() {
         try {
             const d = await (await fetch('/api/status')).json();
             const b = document.getElementById('qbadge');
             b.innerText = d.qdrant ? 'QDRANT: CONNECTED' : 'QDRANT: OFFLINE';
-            b.className = 'badge ' + (d.qdrant ? 'b-ok' : 'b-err');
+            b.className = 'badge '+(d.qdrant ? 'b-ok' : 'b-err');
             const si = document.getElementById('sysinfo');
-            if(si) si.innerText = 'Model: '+d.model+'\\nCollection: '+d.collection+'\\nQdrant: '+(d.qdrant?'OK':'OFFLINE');
+            if(si) si.innerText = 'Model: '+d.model+'\\nCollection: '+d.collection+'\\nQdrant: '+(d.qdrant?'OK':'OFFLINE')+'\\nEmbeddings: '+(d.embeddings?'ON':'OFF (fallback)');
         } catch(e){}
     }
 
-    // ---- VOICE ----
-    const SR = (window.SpeechRecognition || window.webkitSpeechRecognition);
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const rec = SR ? new SR() : null;
-    if(rec){ rec.continuous = false; rec.interimResults = false; }
+    if(rec){ rec.continuous=false; rec.interimResults=false; }
 
     function startSpeech() {
-        if(!rec){ alert('Микрофонът не се поддържа в този браузър.'); return; }
+        if(!rec){ alert('Микрофонът не се поддържа.'); return; }
         rec.start();
         document.getElementById('micbtn').classList.add('rec');
         rec.onresult = e => { document.getElementById('ui-in').value = e.results[0][0].transcript; document.getElementById('micbtn').classList.remove('rec'); send(); };
         rec.onerror = () => document.getElementById('micbtn').classList.remove('rec');
     }
 
-    function toggleVoice() {
-        voiceOn = !voiceOn;
-        document.getElementById('vtog').innerText = 'VOICE: '+(voiceOn?'ON':'OFF');
-        if(!voiceOn) window.speechSynthesis.cancel();
-    }
-
+    function toggleVoice() { voiceOn=!voiceOn; document.getElementById('vtog').innerText='VOICE: '+(voiceOn?'ON':'OFF'); if(!voiceOn) window.speechSynthesis.cancel(); }
     function speak(text) {
         if(!voiceOn) return;
         window.speechSynthesis.cancel();
-        const clean = text.replace(/\\[.*?\\]/g,'').replace(/<[^>]*>/g,'');
-        const u = new SpeechSynthesisUtterance(clean);
-        u.lang = /[а-яА-Я]/.test(clean) ? 'bg-BG' : 'en-US';
+        const u = new SpeechSynthesisUtterance(text.replace(/\\[.*?\\]/g,'').replace(/<[^>]*>/g,''));
+        u.lang = /[а-яА-Я]/.test(u.text) ? 'bg-BG' : 'en-US';
         window.speechSynthesis.speak(u);
     }
 
-    // ---- HISTORY ----
     function restoreHistory() {
-        try {
-            const h = JSON.parse(localStorage.getItem('gh') || '[]');
-            h.forEach(i => addMsg(i.t, i.r, i.h));
-        } catch(e){}
+        try { JSON.parse(localStorage.getItem('gh')||'[]').forEach(i=>addMsg(i.t,i.r,i.h)); } catch(e){}
     }
-
-    function saveHistory(t, r, h) {
-        try {
-            const arr = JSON.parse(localStorage.getItem('gh') || '[]');
-            arr.push({t,r,h});
-            if(arr.length > 120) arr.splice(0, arr.length-120);
-            localStorage.setItem('gh', JSON.stringify(arr));
-        } catch(e){}
+    function saveHistory(t,r,h) {
+        try { const a=JSON.parse(localStorage.getItem('gh')||'[]'); a.push({t,r,h}); if(a.length>120)a.splice(0,a.length-120); localStorage.setItem('gh',JSON.stringify(a)); } catch(e){}
     }
-
     function clearChat() {
         try{ localStorage.removeItem('gh'); } catch(e){}
-        document.getElementById('mbox').innerHTML = '<div class="m system">Историята е изчистена.</div>';
+        document.getElementById('mbox').innerHTML='<div class="m system">Историята е изчистена.</div>';
     }
 
-    // ---- CHAT ----
     async function send() {
-        const inp = document.getElementById('ui-in');
-        const msg = inp.value.trim();
-        const agent = document.getElementById('agt').value;
-        if(!msg || !gkey) return;
-        inp.value = '';
-        addMsg(msg, 'user');
-        saveHistory(msg, 'user', false);
-        syncMem(agent==='both'?'cerberus':agent, 'user', msg);
-
-        if(agent === 'both') {
-            await Promise.all([callAgent('cerberus', msg), callAgent('lilith', msg)]);
-        } else {
-            await callAgent(agent, msg);
-        }
+        const inp=document.getElementById('ui-in'), msg=inp.value.trim(), agent=document.getElementById('agt').value;
+        if(!msg||!gkey) return;
+        inp.value=''; addMsg(msg,'user'); saveHistory(msg,'user',false);
+        syncMem(agent==='both'?'cerberus':agent,'user',msg);
+        if(agent==='both') await Promise.all([callAgent('cerberus',msg),callAgent('lilith',msg)]);
+        else await callAgent(agent,msg);
     }
 
     async function callAgent(agent, msg) {
         const sys = agent==='cerberus' ? CSYS : LSYS;
         try {
-            const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                method:'POST',
-                headers:{'Authorization':'Bearer '+gkey,'Content-Type':'application/json'},
-                body:JSON.stringify({model:MODEL, messages:[{role:'system',content:sys},{role:'user',content:msg}]})
-            });
-            if(!r.ok){ addMsg('API грешка: '+r.status, 'system'); return; }
-            const d = await r.json();
-            const txt = d.choices[0].message.content;
-            processReply(txt, agent);
-            speak(txt);
-            syncMem(agent, 'assistant', txt);
-        } catch(e){ addMsg('Грешка: '+e.message, 'system'); }
+            const r = await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Authorization':'Bearer '+gkey,'Content-Type':'application/json'},body:JSON.stringify({model:MODEL,messages:[{role:'system',content:sys},{role:'user',content:msg}]})});
+            if(!r.ok){addMsg('API грешка: '+r.status,'system');return;}
+            const d=await r.json(), txt=d.choices[0].message.content;
+            processReply(txt,agent); speak(txt); syncMem(agent,'assistant',txt);
+        } catch(e){addMsg('Грешка: '+e.message,'system');}
     }
 
     function processReply(txt, agent) {
-        let html = txt;
-        const cm = txt.match(/\\[CMD\\](.*?)\\[\\/CMD\\]/s);
-        if(cm) html += '<br><button class="act-btn" data-cmd="'+cm[1].replace(/"/g,'&quot;')+'" onclick="runCmd(this)">APPROVE &amp; RUN: '+cm[1]+'</button>';
-        if(txt.includes('[EMAIL]')) html += '<br><button class="act-btn" style="background:var(--lilith);color:#fff;" data-enc="'+btoa(encodeURIComponent(txt))+'" onclick="sendEmail(this)">ИЗПРАТИ ДОКЛАД</button>';
-        addMsg(html, agent, true);
-        saveHistory(html, agent, true);
+        let html=txt;
+        const cm=txt.match(/\\[CMD\\](.*?)\\[\\/CMD\\]/s);
+        if(cm) html+='<br><button class="act-btn" data-cmd="'+cm[1].replace(/"/g,'&quot;')+'" onclick="runCmd(this)">APPROVE &amp; RUN: '+cm[1]+'</button>';
+        if(txt.includes('[EMAIL]')) html+='<br><button class="act-btn" style="background:var(--lilith);color:#fff;" data-enc="'+btoa(encodeURIComponent(txt))+'" onclick="sendEmail(this)">ИЗПРАТИ ДОКЛАД</button>';
+        addMsg(html,agent,true); saveHistory(html,agent,true);
     }
 
-    function addMsg(txt, role, isHtml=false) {
-        const box = document.getElementById('mbox');
-        const d = document.createElement('div');
-        d.className = 'm '+role;
-        if(isHtml) d.innerHTML = txt; else d.innerText = txt;
-        box.appendChild(d);
-        box.scrollTop = box.scrollHeight;
+    function addMsg(txt,role,isHtml=false){
+        const box=document.getElementById('mbox'),d=document.createElement('div');
+        d.className='m '+role; if(isHtml)d.innerHTML=txt; else d.innerText=txt;
+        box.appendChild(d); box.scrollTop=box.scrollHeight;
     }
 
-    // ---- SERVER ACTIONS ----
-    async function runCmd(btn) {
-        const cmd = btn.getAttribute('data-cmd');
-        addMsg('Изпълняване: '+cmd, 'system');
-        try {
-            const r = await fetch('/api/execute', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd})});
-            const d = await r.json();
-            addMsg(d.output || d.error || 'Готово.', 'system');
-        } catch(e){ addMsg('Грешка: '+e.message, 'system'); }
+    async function runCmd(btn){
+        const cmd=btn.getAttribute('data-cmd'); addMsg('Изпълняване: '+cmd,'system');
+        try{const r=await fetch('/api/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd})});const d=await r.json();addMsg(d.output||d.error||'Готово.','system');}catch(e){addMsg('Грешка: '+e.message,'system');}
     }
-
-    async function sendEmail(btn) {
-        const content = decodeURIComponent(atob(btn.getAttribute('data-enc')));
-        addMsg('Изпращане на доклад...', 'system');
-        try {
-            const r = await fetch('/api/send_email', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content})});
-            const d = await r.json();
-            addMsg(d.ok ? 'Докладът е изпратен.' : 'Грешка: '+d.error, 'system');
-        } catch(e){ addMsg('Грешка: '+e.message, 'system'); }
+    async function sendEmail(btn){
+        const content=decodeURIComponent(atob(btn.getAttribute('data-enc'))); addMsg('Изпращане...','system');
+        try{const r=await fetch('/api/send_email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content})});const d=await r.json();addMsg(d.ok?'Изпратено.':'Грешка: '+d.error,'system');}catch(e){addMsg('Грешка: '+e.message,'system');}
     }
-
-    async function uploadFiles() {
-        const files = document.getElementById('fup').files;
-        const fd = new FormData();
-        for(const f of files) fd.append('files[]', f);
-        addMsg('Анализ на файловете...', 'system');
-        try {
-            const r = await fetch('/api/upload', {method:'POST', body:fd});
-            const d = await r.json();
-            if(d.bugs && d.bugs.length) {
-                d.bugs.forEach(b => { if(b.error) addMsg('БАГ в '+b.file+': '+b.error, 'system'); else addMsg('Файл OK: '+b.file, 'system'); });
-            }
-        } catch(e){ addMsg('Грешка: '+e.message, 'system'); }
+    async function uploadFiles(){
+        const files=document.getElementById('fup').files,fd=new FormData();
+        for(const f of files)fd.append('files[]',f);
+        addMsg('Анализ на файловете...','system');
+        try{const r=await fetch('/api/upload',{method:'POST',body:fd});const d=await r.json();if(d.bugs)d.bugs.forEach(b=>{addMsg((b.error?'БАГ в ':'OK: ')+b.file+(b.error?': '+b.error:''),'system');});}catch(e){addMsg('Грешка: '+e.message,'system');}
     }
-
-    // ---- MEMORY ----
-    async function syncMem(agent, role, content) {
-        try { await fetch('/api/memory/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent,role,content,event_type:'chat'})}); } catch(e){}
+    async function syncMem(agent,role,content){
+        try{await fetch('/api/memory/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent,role,content,event_type:'chat'})});}catch(e){}
     }
-
-    async function loadMem(agent) {
-        const list = document.getElementById('mlist');
-        list.innerHTML = '<span style="color:#555;font-size:13px;">Зареждане...</span>';
-        try {
-            const url = agent ? '/api/memory/recent?agent='+agent+'&limit=40' : '/api/memory/recent?limit=40';
-            const d = await (await fetch(url)).json();
-            if(!d.events || !d.events.length){ list.innerHTML='<span style="color:#555;font-size:13px;">Няма записи.</span>'; return; }
-            list.innerHTML = '';
-            d.events.slice().reverse().forEach(ev => {
-                const el = document.createElement('div');
-                el.className = 'mem-row';
-                const ac = ev.agent==='cerberus' ? 'var(--cerberus)' : 'var(--lilith)';
-                el.innerHTML = '<span style="color:'+ac+'">['+(ev.agent||'?').toUpperCase()+']</span> '
-                    +'<span style="color:#555">'+(ev.timestamp||'').substring(0,19)+'</span> '
-                    +'<span style="color:#666">['+( ev.event_type||'chat')+']</span><br>'
-                    +'<span style="color:#bbb">'+(ev.content||'').substring(0,220)+'</span>';
+    async function loadMem(agent){
+        const list=document.getElementById('mlist'); list.innerHTML='<span style="color:#555;font-size:13px;">Зареждане...</span>';
+        try{
+            const url=agent?'/api/memory/recent?agent='+agent+'&limit=40':'/api/memory/recent?limit=40';
+            const d=await(await fetch(url)).json();
+            if(!d.events||!d.events.length){list.innerHTML='<span style="color:#555;font-size:13px;">Няма записи.</span>';return;}
+            list.innerHTML='';
+            d.events.slice().reverse().forEach(ev=>{
+                const el=document.createElement('div'); el.className='mem-row';
+                const ac=ev.agent==='cerberus'?'var(--cerberus)':'var(--lilith)';
+                el.innerHTML='<span style="color:'+ac+'">['+(ev.agent||'?').toUpperCase()+']</span> <span style="color:#555">'+(ev.timestamp||'').substring(0,19)+'</span> <span style="color:#666">['+(ev.event_type||'chat')+']</span><br><span style="color:#bbb">'+(ev.content||'').substring(0,220)+'</span>';
                 list.appendChild(el);
             });
-        } catch(e){ list.innerHTML='<span style="color:#f44">Грешка: '+e.message+'</span>'; }
+        }catch(e){list.innerHTML='<span style="color:#f44">Грешка: '+e.message+'</span>';}
+    }
+    async function loadTasks(){
+        try{const d=await(await fetch('/api/tasks')).json();const list=document.getElementById('tlist');if(!d.tasks||!d.tasks.length){list.innerHTML='<span style="color:#555;font-size:13px;">Няма задачи.</span>';return;}list.innerHTML=d.tasks.map(t=>'<div class="mem-row"><b style="color:var(--gold)">['+t.status+']</b> '+t.task+'</div>').join('');}catch(e){}
     }
 
-    // ---- TASKS ----
-    async function loadTasks() {
-        try {
-            const d = await (await fetch('/api/tasks')).json();
-            const list = document.getElementById('tlist');
-            if(!d.tasks || !d.tasks.length){ list.innerHTML='<span style="color:#555;font-size:13px;">Няма задачи.</span>'; return; }
-            list.innerHTML = d.tasks.map(t=>'<div class="mem-row"><b style="color:var(--gold)">['+t.status+']</b> '+t.task+'</div>').join('');
-        } catch(e){}
-    }
-
-    // ---- VIEW SWITCH ----
-    const VIEWS = {chat:'v-chat', tasks:'v-tasks', memory:'v-memory', brief:'v-brief'};
-    const TABS  = {chat:'tc', tasks:'tt', memory:'tm', brief:'tb'};
-    function sw(name) {
-        Object.keys(VIEWS).forEach(k => {
-            const v = document.getElementById(VIEWS[k]);
-            const t = document.getElementById(TABS[k]);
-            if(v) v.className = 'view'+(k===name?' on':'');
-            if(t) t.className = 'tab'+(k===name?' on':'');
+    const VIEWS={chat:'v-chat',tasks:'v-tasks',memory:'v-memory',brief:'v-brief'};
+    const TABS={chat:'tc',tasks:'tt',memory:'tm',brief:'tb'};
+    function sw(name){
+        Object.keys(VIEWS).forEach(k=>{
+            const v=document.getElementById(VIEWS[k]),t=document.getElementById(TABS[k]);
+            if(v)v.className='view'+(k===name?' on':'');
+            if(t)t.className='tab'+(k===name?' on':'');
         });
-        if(name==='tasks') loadTasks();
-        if(name==='brief') checkStatus();
+        if(name==='tasks')loadTasks();
+        if(name==='brief')checkStatus();
     }
 </script>
 </body>
@@ -619,33 +511,18 @@ def favicon():
 @app.route('/')
 def index():
     ensure_collection()
-    return render_template_string(
-        HTML,
-        addr=CONTRACT_ADDRESS,
-        cerberus_s=CERBERUS_SYSTEM,
-        lilith_s=LILITH_SYSTEM
-    )
+    return render_template_string(HTML, addr=CONTRACT_ADDRESS, cerberus_s=CERBERUS_SYSTEM, lilith_s=LILITH_SYSTEM)
 
 
 @app.route('/api/status')
 def api_status():
-    return jsonify({
-        'qdrant': QDRANT_OK,
-        'model': 'llama-3.1-8b-instant (Groq / phi-4-mini class)',
-        'collection': COLLECTION,
-        'embeddings': HAS_EMBEDDINGS,
-    })
+    return jsonify({'qdrant': QDRANT_OK, 'model': 'llama-3.1-8b-instant (Groq / phi-4-mini class)', 'collection': COLLECTION, 'embeddings': HAS_EMBEDDINGS})
 
 
 @app.route('/api/memory/save', methods=['POST'])
 def api_memory_save():
     d = request.get_json(force=True) or {}
-    save_event(
-        agent=d.get('agent', 'system'),
-        role=d.get('role', 'user'),
-        content=d.get('content', ''),
-        event_type=d.get('event_type', 'chat')
-    )
+    save_event(agent=d.get('agent','system'), role=d.get('role','user'), content=d.get('content',''), event_type=d.get('event_type','chat'))
     return jsonify({'ok': True})
 
 
@@ -669,8 +546,7 @@ def api_upload():
         fname = secure_filename(f.filename)
         path = os.path.join(app.config['UPLOAD_FOLDER'], fname)
         f.save(path)
-        err = analyze_uploaded_file(path)
-        results.append({'file': fname, 'error': err})
+        results.append({'file': fname, 'error': analyze_uploaded_file(path)})
     return jsonify({'ok': True, 'bugs': results})
 
 
@@ -694,9 +570,8 @@ def api_send_email():
     if not SENDER_PASS:
         return jsonify({'ok': False, 'error': 'GMAIL_APP_PASSWORD not configured'}), 400
     d = request.get_json(force=True) or {}
-    content = d.get('content', '')
     try:
-        msg = MIMEText(content)
+        msg = MIMEText(d.get('content', ''))
         msg['Subject'] = 'GaiaSpeak Protocol Report'
         msg['From'] = SENDER_EMAIL
         msg['To'] = RECIPIENT_EMAIL

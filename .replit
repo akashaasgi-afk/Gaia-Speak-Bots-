@@ -7,7 +7,7 @@ packages = ["inshellisense"]
 
 # 2. Replit UI and Run Button Configuration
 [workflows]
-runButton = "Start application"
+runButton = "Project"
 
 [[workflows.workflow]]
 name = "Start application"
@@ -16,11 +16,19 @@ author = "agent"
 [workflows.workflow.metadata]
 outputType = "webview"
 
-# 3. Execution Logic (Installs dependencies then starts server)
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pip install flask gunicorn qdrant-client && gunicorn --bind=0.0.0.0:5000 --workers=1 main:app"
+args = "pip install flask gunicorn qdrant-client schedule && python3 patch_imports.py && gunicorn --bind=0.0.0.0:5000 --workers=1 main:app"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
 
 [[ports]]
 localPort = 5000
