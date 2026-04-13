@@ -6,6 +6,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "./libraries/TokenLib.sol";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTERFACE — Protocol
@@ -52,12 +53,6 @@ contract GaiaSpeakToken is
 {
     IGaiaSpeakProtocol public protocol;
 
-    // ─── PURCHASE CONSTANTS (T-1, T-2) ───────────────────────────────────
-    // Removed: fixed tier pricing ($7.77), minimum 1 full token
-    // Added: $1.00 minimum, fractional gram minting
-    uint256 public constant MIN_PURCHASE_USD_CENTS = 100;   // $1.00
-    uint256 public constant ACTION_COOLDOWN         = 60;   // seconds between purchases
-
     // ─── FLASH LOAN PROTECTION (T-2) ─────────────────────────────────────
     mapping(address => uint256) private _lastPurchaseBlock;
     mapping(address => uint256) private _lastActionTime;
@@ -71,13 +66,9 @@ contract GaiaSpeakToken is
     mapping(address => address) public referredBy;
     mapping(address => uint256) public referralCount;      // completed purchases
     mapping(address => uint256) public referralRewardsPending;
-    uint256 public constant REFERRALS_FOR_REWARD = 10;
 
     // ─── TRANSFER FEES ────────────────────────────────────────────────────
     mapping(address => bool) public feeExempt;
-    uint256 public constant EXTERNAL_FEE_BPS  = 200;  // 2.00%
-    uint256 public constant P2P_FEE_BPS       = 2;    // 0.02%
-    uint256 public constant MIN_TRANSFER_TOKENS = 5e17; // 0.5 GSG
 
     // ─── EVENTS ───────────────────────────────────────────────────────────
     event GoldPurchased(
@@ -126,7 +117,7 @@ contract GaiaSpeakToken is
 
     modifier rateLimited() {
         require(
-            block.timestamp >= _lastActionTime[msg.sender] + ACTION_COOLDOWN,
+            TokenLib.isCooldownExpired(_lastActionTime[msg.sender]),
             "Please wait 60 seconds between purchases"
         );
         _lastActionTime[msg.sender] = block.timestamp;
@@ -190,7 +181,7 @@ contract GaiaSpeakToken is
 
         // ── Minimum $1.00 check (T-2) ────────────────────────────────────
         require(
-            sentUSD >= MIN_PURCHASE_USD_CENTS * 1e16,
+            TokenLib.meetsMinimumPurchase(sentUSD),
             "Minimum purchase is $1.00"
         );
 
@@ -200,7 +191,7 @@ contract GaiaSpeakToken is
         // ── Fractional gram calculation (T-2) ────────────────────────────
         // gsAmount in 18 decimals = grams of gold
         // sentUSD / goldPricePerGram = grams purchased
-        uint256 gsAmount = (sentUSD * 1e18) / goldPricePerGram;
+        uint256 gsAmount = TokenLib.calculateGramAmount(sentUSD, goldPricePerGram);
         require(gsAmount > 0, "Amount too small to mint");
 
         // ── Auto-YELLOW on first public purchase (T-3) ───────────────────
@@ -247,16 +238,11 @@ contract GaiaSpeakToken is
             stage == IGaiaSpeakProtocol.Stage.BLUE   ||
             stage == IGaiaSpeakProtocol.Stage.WHITE)
         {
-            // GREEN/YELLOW/BLUE/WHITE distribution
-            // Founder: 1% = 100/10000
-            // Pioneers: 0.01% total = 1/10000 (split 5 ways)
-            // Reserve: 87.11% = 8711/10000
-            // Operations: 11.88% = 1188/10000
-
-            uint256 founderShare  = (amount * 100)  / 10000;
-            uint256 pioneerTotal  = (amount * 1)    / 10000;
-            uint256 reserveShare  = (amount * 8711) / 10000;
-            uint256 opsShare      = (amount * 1188) / 10000;
+            // GREEN/YELLOW/BLUE/WHITE distribution via TokenLib constants
+            uint256 founderShare  = TokenLib.calculateFee(amount, TokenLib.FOUNDER_SHARE_BPS);
+            uint256 pioneerTotal  = TokenLib.calculateFee(amount, TokenLib.PIONEER_TOTAL_BPS);
+            uint256 reserveShare  = TokenLib.calculateFee(amount, TokenLib.RESERVE_SHARE_BPS);
+            uint256 opsShare      = TokenLib.calculateFee(amount, TokenLib.OPERATIONS_SHARE_BPS);
 
             // Dust goes to reserve (rounding protection)
             uint256 distributed = founderShare + pioneerTotal + reserveShare + opsShare;
@@ -293,7 +279,7 @@ contract GaiaSpeakToken is
             uint256 goldPriceWei = protocol.usdToWei(protocol.getGoldPriceUSD());
             uint256 markup = amount - goldPriceWei;
             if (markup > 0) {
-                uint256 founderMarkup  = (markup * 40) / 100;
+                uint256 founderMarkup  = (markup * TokenLib.GOLD_FOUNDER_MARKUP_PCT) / 100;
                 uint256 reserveMarkup  = markup - founderMarkup;
                 _sendETH(protocol.founderWallet(), founderMarkup);
                 _sendETH(protocol.goldReserveWallet(), goldPriceWei + reserveMarkup);
@@ -323,7 +309,7 @@ contract GaiaSpeakToken is
         _checkAndDeactivatePioneerReward(msg.sender);
 
         uint256 price    = annual ? annualMembershipPrice : monthlyMembershipPrice;
-        uint256 duration = annual ? 365 days : 30 days;
+        uint256 duration = TokenLib.getMembershipDuration(annual);
 
         require(msg.value >= price, "Insufficient membership payment");
 
@@ -342,7 +328,7 @@ contract GaiaSpeakToken is
     }
 
     function isMember(address user) public view returns (bool) {
-        return membershipExpiry[user] > block.timestamp;
+        return TokenLib.isMember(membershipExpiry[user]);
     }
 
     // ── Pioneer auto-deactivation helper (T-4) ────────────────────────────
@@ -362,7 +348,7 @@ contract GaiaSpeakToken is
         referralCount[referrer]++;
         emit ReferralRecorded(referrer, msg.sender);
 
-        if (referralCount[referrer] % REFERRALS_FOR_REWARD == 0) {
+        if (TokenLib.hasReferralReward(referralCount[referrer])) {
             referralRewardsPending[referrer]++;
         }
     }
@@ -449,7 +435,7 @@ contract GaiaSpeakToken is
             return;
         }
 
-        require(amount >= MIN_TRANSFER_TOKENS, "Below minimum transfer");
+        require(amount >= TokenLib.MIN_TRANSFER_TOKENS, "Below minimum transfer");
 
         bool fromMember = isMember(from);
         bool toMember   = isMember(to);
@@ -459,14 +445,14 @@ contract GaiaSpeakToken is
 
         if (fromMember && toMember) {
             // P2P member-to-member: 0.02%
-            fee = (amount * P2P_FEE_BPS) / 10000;
+            fee = TokenLib.calculateFee(amount, TokenLib.P2P_FEE_BPS);
             burnAmount = fee / 2;
             uint256 reserveFee = fee - burnAmount;
             super._burn(from, burnAmount);
             super._transfer(from, protocol.goldReserveWallet(), reserveFee);
         } else {
             // External transfer: 2%
-            fee = (amount * EXTERNAL_FEE_BPS) / 10000;
+            fee = TokenLib.calculateFee(amount, TokenLib.EXTERNAL_FEE_BPS);
             uint256 half = fee / 2;
             super._transfer(from, protocol.operationsWallet(), half);
             super._transfer(from, protocol.goldReserveWallet(), fee - half);

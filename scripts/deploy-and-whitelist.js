@@ -1,5 +1,8 @@
 import pkg from "hardhat";
-const { ethers } = pkg;
+const { ethers, tenderly } = pkg;
+
+// Disable Tenderly automatic background verification to prevent the 400 Bad Request spam during deployments
+process.env.TENDERLY_AUTOMATIC_VERIFICATION = "false";
 
 async function main() {
   // ═══════════════════════════════════════════════════════════════════════
@@ -99,10 +102,70 @@ async function main() {
   console.log("✅ GaiaSpeakNFT deployed at:", nftAddress + "\n");
 
   // ═══════════════════════════════════════════════════════════════════════
+  // STEP 4.5: Deploy PioneerNFT (wraps GSG + GSS tokens)
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log("STEP 4️⃣.5️⃣  Deploying PioneerNFT...");
+  const PioneerNFT = await ethers.getContractFactory("PioneerNFT");
+  const pioneerNFT = await PioneerNFT.deploy(goldTokenAddress, silverTokenAddress);
+  await pioneerNFT.waitForDeployment();
+  const pioneerNFTAddress = await pioneerNFT.getAddress();
+  console.log("✅ PioneerNFT deployed at:", pioneerNFTAddress + "\n");
+
+   // ─────────────────────────────────────────────
+  // VERIFY (FIXED)
+  // ─────────────────────────────────────────────
+
+  if (!process.env.TENDERLY_ACCESS_KEY) {
+    console.log("⚠️ No Tenderly key, skipping verification\n");
+  } else {
+    const contracts = [
+      {
+        name: "contracts/GaiaSpeakProtocol.sol:GaiaSpeakProtocol",
+        address: protocolAddress,
+      },
+      {
+        name: "contracts/GaiaSpeakToken.sol:GaiaSpeakToken",
+        address: goldTokenAddress,
+      },
+      {
+        name: "contracts/GaiaSpeakSilverToken.sol:GaiaSpeakSilverToken",
+        address: silverTokenAddress,
+      },
+      {
+        name: "contracts/GaiaSpeakNFT.sol:GaiaSpeakNFT",
+        address: nftAddress,
+      },
+      {
+        name: "contracts/PioneerNFT.sol:PioneerNFT",
+        address: pioneerNFTAddress,
+      },
+    ];
+
+    for (const c of contracts) {
+      try {
+        console.log(`🔍 Verifying ${c.name}...`);
+        await tenderly.verify(c);
+
+        console.log(`✅ VERIFIED: ${c.address}\n`);
+      } catch (err) {
+        console.error(`❌ FAILED: ${c.name}`);
+        console.error(err?.message || err);
+        console.log("");
+      }
+    }
+  }
+
+  console.log("🎯 DONE\n");
+
+  // ═══════════════════════════════════════════════════════════════════════
   // STEP 5: Initialize GaiaSpeakProtocol with all wallet addresses
   // ═══════════════════════════════════════════════════════════════════════
   console.log("STEP 5️⃣  Initializing GaiaSpeakProtocol...");
-  const initTx = await protocol.initialize(
+  
+  // Re-attach to ensure all methods are available
+  const protocolContract = await ethers.getContractAt("GaiaSpeakProtocol", protocolAddress);
+  
+  const initTx = await protocolContract.initialize(
     FOUNDER,                                    // _founder
     GOLD_RESERVE,                               // _goldReserve
     GOLD_RESERVE,                               // _silverReserve (same as gold for now)
@@ -127,7 +190,7 @@ async function main() {
   // For local/testnet testing, if deployer is not owner, try to impersonate
   // If this is mainnet, the deployer should be the founder OR the founder should execute this
   try {
-    const setGoldTx = await protocol.setGoldTokenContract(goldTokenAddress);
+    const setGoldTx = await protocolContract.setGoldTokenContract(goldTokenAddress);
     await setGoldTx.wait();
     console.log("✅ Gold token contract set\n");
   } catch (error) {
@@ -135,7 +198,7 @@ async function main() {
       console.log("⚠️  Deployer is not owner. Attempting to call from founder wallet...");
       // Get a signer for the founder wallet (only works on local/test networks)
       const founderSigner = await ethers.provider.getSigner(FOUNDER);
-      const protocolAsFounder = protocol.connect(founderSigner);
+      const protocolAsFounder = protocolContract.connect(founderSigner);
       const setGoldTx = await protocolAsFounder.setGoldTokenContract(goldTokenAddress);
       await setGoldTx.wait();
       console.log("✅ Gold token contract set (via founder)\n");
@@ -149,14 +212,14 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   console.log("STEP 7️⃣  Setting Silver Token Contract on Protocol...");
   try {
-    const setSilverTx = await protocol.setSilverTokenContract(silverTokenAddress);
+    const setSilverTx = await protocolContract.setSilverTokenContract(silverTokenAddress);
     await setSilverTx.wait();
     console.log("✅ Silver token contract set\n");
   } catch (error) {
     if (error.message.includes("Ownable: caller is not the owner")) {
       console.log("⚠️  Deployer is not owner. Attempting to call from founder wallet...");
       const founderSigner = await ethers.provider.getSigner(FOUNDER);
-      const protocolAsFounder = protocol.connect(founderSigner);
+      const protocolAsFounder = protocolContract.connect(founderSigner);
       const setSilverTx = await protocolAsFounder.setSilverTokenContract(silverTokenAddress);
       await setSilverTx.wait();
       console.log("✅ Silver token contract set (via founder)\n");
@@ -170,14 +233,14 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   console.log("STEP 8️⃣  Setting NFT Contract on Protocol...");
   try {
-    const setNFTTx = await protocol.setNFTContract(nftAddress);
+    const setNFTTx = await protocolContract.setNFTContract(nftAddress);
     await setNFTTx.wait();
     console.log("✅ NFT contract set\n");
   } catch (error) {
     if (error.message.includes("Ownable: caller is not the owner")) {
       console.log("⚠️  Deployer is not owner. Attempting to call from founder wallet...");
       const founderSigner = await ethers.provider.getSigner(FOUNDER);
-      const protocolAsFounder = protocol.connect(founderSigner);
+      const protocolAsFounder = protocolContract.connect(founderSigner);
       const setNFTTx = await protocolAsFounder.setNFTContract(nftAddress);
       await setNFTTx.wait();
       console.log("✅ NFT contract set (via founder)\n");
@@ -192,7 +255,8 @@ async function main() {
   console.log("Initializing Token Contracts...");
 
   // Initialize Gold Token
-  const goldInitTx = await goldToken.initialize(
+  const goldTokenContract = await ethers.getContractAt("GaiaSpeakToken", goldTokenAddress);
+  const goldInitTx = await goldTokenContract.initialize(
     protocolAddress,
     ethers.parseEther("0.01"),  // 0.01 MATIC monthly membership (~$0.003)
     "GaiaSpeakToken",
@@ -203,7 +267,8 @@ async function main() {
 
   // Initialize Silver Token
   // NOTE: GaiaSpeakSilverToken takes 2 params (not 4 like GaiaspeakToken)
-  const silverInitTx = await silverToken.initialize(
+  const silverTokenContract = await ethers.getContractAt("GaiaSpeakSilverToken", silverTokenAddress);
+  const silverInitTx = await silverTokenContract.initialize(
     protocolAddress,
     ethers.parseEther("0.01")  // 0.01 MATIC monthly membership
   );
@@ -221,7 +286,8 @@ async function main() {
   console.log("Protocol Address:      ", protocolAddress);
   console.log("Gold Token (GSG):      ", goldTokenAddress);
   console.log("Silver Token (GSS):    ", silverTokenAddress);
-  console.log("NFT Contract:          ", nftAddress);
+  console.log("GaiaSpeakNFT:          ", nftAddress);
+  console.log("PioneerNFT:            ", pioneerNFTAddress);
   console.log("─".repeat(70));
   console.log("\n💰 WALLET CONFIGURATION:");
   console.log("─".repeat(70));

@@ -7,6 +7,7 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "./libraries/NFTLib.sol";
 
 // =============================================================================
 // INTERFACES
@@ -71,25 +72,8 @@ contract GaiaSpeakNFT is
     UUPSUpgradeable
 {
     // =========================================================================
-    // CONSTANTS
+    // CONSTANTS (using NFTLib)
     // =========================================================================
-
-    /// @dev 60% to creator
-    uint256 public constant CREATOR_SHARE_BPS   = 6000;
-    /// @dev 20% to founder
-    uint256 public constant FOUNDER_SHARE_BPS   = 2000;
-    /// @dev 20% to reserve (remainder avoids dust)
-    uint256 public constant RESERVE_SHARE_BPS   = 2000;
-    uint256 public constant BPS_DENOMINATOR     = 10000;
-
-    /// @dev Appeal fee: exactly 0.5 token (18 decimals)
-    uint256 public constant APPEAL_FEE          = 5e17;
-
-    /// @dev Buyer has 7 days after purchase to dispute
-    uint256 public constant DISPUTE_WINDOW      = 7 days;
-
-    /// @dev Minimum listing price: 0.001 token
-    uint256 public constant MIN_LISTING_PRICE   = 1e15;
 
     // =========================================================================
     // STATE
@@ -381,7 +365,7 @@ contract GaiaSpeakNFT is
         returns (uint256 tokenId)
     {
         require(bytes(metadataURI).length > 0, "Metadata URI cannot be empty");
-        require(price >= MIN_LISTING_PRICE,    "Price below minimum (0.001 token)");
+        require(NFTLib.meetsMinimumPrice(price), "Price below minimum (0.001 token)");
 
         if (payToken == PaymentToken.SILVER) {
             require(
@@ -449,7 +433,7 @@ contract GaiaSpeakNFT is
         onlyTokenOwner(tokenId)
     {
         require(!listings[tokenId].active,  "Already listed - delist first");
-        require(price >= MIN_LISTING_PRICE, "Price below minimum");
+        require(NFTLib.meetsMinimumPrice(price), "Price below minimum");
 
         if (payToken == PaymentToken.SILVER) {
             require(
@@ -547,11 +531,11 @@ contract GaiaSpeakNFT is
             reserveWallet = goldReserveWallet;
         }
 
-        // ── Calculate 60 / 20 / 20 split ─────────────────────────────────────
+        // ── Calculate 60 / 20 / 20 split using NFTLib ────────────────────────
         uint256 price        = listing.price;
-        uint256 creatorShare = (price * CREATOR_SHARE_BPS) / BPS_DENOMINATOR;  // 60%
-        uint256 founderShare = (price * FOUNDER_SHARE_BPS) / BPS_DENOMINATOR;  // 20%
-        uint256 reserveShare = price - creatorShare - founderShare;              // 20% (remainder)
+        uint256 creatorShare = NFTLib.calculateCreatorShare(price);  // 60%
+        uint256 founderShare = NFTLib.calculateFounderShare(price);  // 20%
+        uint256 reserveShare = NFTLib.calculateReserveShare(price);  // 20%
 
         // Verify split is complete — no tokens lost
         assert(creatorShare + founderShare + reserveShare == price);
@@ -635,7 +619,7 @@ contract GaiaSpeakNFT is
         require(!sale.disputed,              "Dispute already opened");
         require(!sale.resolved,              "Sale already resolved");
         require(
-            block.timestamp <= sale.soldAt + DISPUTE_WINDOW,
+            NFTLib.isDisputeWindowOpen(sale.soldAt),
             "Dispute window has closed (7 days after purchase)"
         );
         require(bytes(reason).length > 0,   "Dispute reason cannot be empty");
@@ -698,7 +682,7 @@ contract GaiaSpeakNFT is
                 ? silverTokenContract
                 : goldTokenContract;
 
-            uint256 refundAmount = (sale.price * CREATOR_SHARE_BPS) / BPS_DENOMINATOR;
+            uint256 refundAmount = NFTLib.calculateCreatorShare(sale.price);
             uint256 contractBalance = tokenContract.balanceOf(address(this));
 
             if (contractBalance >= refundAmount) {
@@ -760,7 +744,7 @@ contract GaiaSpeakNFT is
 
         // Pull 0.5 token appeal fee from creator
         require(
-            tokenContract.transferFrom(msg.sender, address(this), APPEAL_FEE),
+            tokenContract.transferFrom(msg.sender, address(this), NFTLib.APPEAL_FEE),
             "Appeal fee transfer failed - check token approval"
         );
 
@@ -768,7 +752,7 @@ contract GaiaSpeakNFT is
         dispute.appealedAt      = block.timestamp;
         dispute.status          = DisputeStatus.APPEALED;
 
-        emit AppealFiled(tokenId, msg.sender, APPEAL_FEE);
+        emit AppealFiled(tokenId, msg.sender, NFTLib.APPEAL_FEE);
     }
 
     /**
@@ -809,8 +793,8 @@ contract GaiaSpeakNFT is
 
         // Appeal fee always goes to reserve regardless of outcome
         uint256 contractBalance = tokenContract.balanceOf(address(this));
-        if (contractBalance >= APPEAL_FEE) {
-            tokenContract.transfer(reserveWallet, APPEAL_FEE);
+        if (contractBalance >= NFTLib.APPEAL_FEE) {
+            tokenContract.transfer(reserveWallet, NFTLib.APPEAL_FEE);
         }
 
         dispute.status     = appealSucceeds
@@ -966,9 +950,9 @@ contract GaiaSpeakNFT is
             uint256 reserveShare
         )
     {
-        creatorShare = (price * CREATOR_SHARE_BPS) / BPS_DENOMINATOR;
-        founderShare = (price * FOUNDER_SHARE_BPS) / BPS_DENOMINATOR;
-        reserveShare = price - creatorShare - founderShare;
+        creatorShare = NFTLib.calculateCreatorShare(price);
+        founderShare = NFTLib.calculateFounderShare(price);
+        reserveShare = NFTLib.calculateReserveShare(price);
     }
 
     // =========================================================================

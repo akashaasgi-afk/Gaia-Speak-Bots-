@@ -6,6 +6,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "./libraries/TokenLib.sol";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTERFACE — Protocol (same as gold token)
@@ -51,9 +52,6 @@ contract GaiaSpeakSilverToken is
 {
     IGaiaSpeakProtocolSilver public protocol;
 
-    uint256 public constant MIN_PURCHASE_USD_CENTS = 100;
-    uint256 public constant ACTION_COOLDOWN         = 60;
-
     mapping(address => uint256) private _lastPurchaseBlock;
     mapping(address => uint256) private _lastActionTime;
 
@@ -64,12 +62,8 @@ contract GaiaSpeakSilverToken is
     mapping(address => address) public referredBy;
     mapping(address => uint256) public referralCount;
     mapping(address => uint256) public referralRewardsPending;
-    uint256 public constant REFERRALS_FOR_REWARD = 10;
 
     mapping(address => bool) public feeExempt;
-    uint256 public constant EXTERNAL_FEE_BPS   = 200;
-    uint256 public constant P2P_FEE_BPS        = 2;
-    uint256 public constant MIN_TRANSFER_TOKENS = 5e17;
 
     // ─── EVENTS ───────────────────────────────────────────────────────────
     event SilverPurchased(
@@ -105,7 +99,7 @@ contract GaiaSpeakSilverToken is
 
     modifier rateLimited() {
         require(
-            block.timestamp >= _lastActionTime[msg.sender] + ACTION_COOLDOWN,
+            TokenLib.isCooldownExpired(_lastActionTime[msg.sender]),
             "Please wait 60 seconds"
         );
         _lastActionTime[msg.sender] = block.timestamp;
@@ -162,13 +156,13 @@ contract GaiaSpeakSilverToken is
 
         uint256 sentUSD = (msg.value * ethPriceUSD) / 1e18;
         require(
-            sentUSD >= MIN_PURCHASE_USD_CENTS * 1e16,
+            TokenLib.meetsMinimumPurchase(sentUSD),
             "Minimum purchase is $1.00"
         );
 
         _lastPurchaseBlock[msg.sender] = block.number;
 
-        uint256 gssAmount = (sentUSD * 1e18) / silverPricePerGram;
+        uint256 gssAmount = TokenLib.calculateGramAmount(sentUSD, silverPricePerGram);
         require(gssAmount > 0, "Amount too small");
 
         bool isBuyerPioneer = protocol.isPioneer(msg.sender);
@@ -203,10 +197,10 @@ contract GaiaSpeakSilverToken is
         IGaiaSpeakProtocolSilver.Stage stage = protocol.currentStage();
 
         if (stage != IGaiaSpeakProtocolSilver.Stage.GOLD) {
-            uint256 founderShare = (amount * 100)  / 10000;
-            uint256 pioneerTotal = (amount * 1)    / 10000;
-            uint256 reserveShare = (amount * 8711) / 10000;
-            uint256 opsShare     = (amount * 1188) / 10000;
+            uint256 founderShare = TokenLib.calculateFee(amount, TokenLib.FOUNDER_SHARE_BPS);
+            uint256 pioneerTotal = TokenLib.calculateFee(amount, TokenLib.PIONEER_TOTAL_BPS);
+            uint256 reserveShare = TokenLib.calculateFee(amount, TokenLib.RESERVE_SHARE_BPS);
+            uint256 opsShare     = TokenLib.calculateFee(amount, TokenLib.OPERATIONS_SHARE_BPS);
 
             uint256 distributed = founderShare + pioneerTotal + reserveShare + opsShare;
             if (distributed < amount) reserveShare += amount - distributed;
@@ -235,7 +229,7 @@ contract GaiaSpeakSilverToken is
             uint256 silverPriceWei = protocol.usdToWei(protocol.getSilverPriceUSD());
             uint256 markup = amount > silverPriceWei ? amount - silverPriceWei : 0;
             if (markup > 0) {
-                uint256 founderMarkup = (markup * 40) / 100;
+                uint256 founderMarkup = (markup * TokenLib.GOLD_FOUNDER_MARKUP_PCT) / 100;
                 _sendETH(protocol.founderWallet(), founderMarkup);
                 _sendETH(protocol.silverReserveWallet(), silverPriceWei + markup - founderMarkup);
             } else {
@@ -259,7 +253,7 @@ contract GaiaSpeakSilverToken is
     {
         _checkAndDeactivatePioneerReward(msg.sender);
         uint256 price    = annual ? annualMembershipPrice : monthlyMembershipPrice;
-        uint256 duration = annual ? 365 days : 30 days;
+        uint256 duration = TokenLib.getMembershipDuration(annual);
         require(msg.value >= price, "Insufficient payment");
 
         uint256 currentExpiry = membershipExpiry[msg.sender];
@@ -273,7 +267,7 @@ contract GaiaSpeakSilverToken is
     }
 
     function isMember(address user) public view returns (bool) {
-        return membershipExpiry[user] > block.timestamp;
+        return TokenLib.isMember(membershipExpiry[user]);
     }
 
     function _checkAndDeactivatePioneerReward(address user) internal {
@@ -286,7 +280,7 @@ contract GaiaSpeakSilverToken is
     function _recordReferral(address referrer) internal {
         referralCount[referrer]++;
         emit ReferralRecorded(referrer, msg.sender);
-        if (referralCount[referrer] % REFERRALS_FOR_REWARD == 0) {
+        if (TokenLib.hasReferralReward(referralCount[referrer])) {
             referralRewardsPending[referrer]++;
         }
     }
@@ -335,19 +329,19 @@ contract GaiaSpeakSilverToken is
             super._transfer(from, to, amount);
             return;
         }
-        require(amount >= MIN_TRANSFER_TOKENS, "Below minimum transfer");
+        require(amount >= TokenLib.MIN_TRANSFER_TOKENS, "Below minimum transfer");
 
         bool fromMember = isMember(from);
         bool toMember   = isMember(to);
         uint256 fee;
 
         if (fromMember && toMember) {
-            fee = (amount * P2P_FEE_BPS) / 10000;
+            fee = TokenLib.calculateFee(amount, TokenLib.P2P_FEE_BPS);
             uint256 burnAmt = fee / 2;
             super._burn(from, burnAmt);
             super._transfer(from, protocol.silverReserveWallet(), fee - burnAmt);
         } else {
-            fee = (amount * EXTERNAL_FEE_BPS) / 10000;
+            fee = TokenLib.calculateFee(amount, TokenLib.EXTERNAL_FEE_BPS);
             uint256 half = fee / 2;
             super._transfer(from, protocol.operationsWallet(), half);
             super._transfer(from, protocol.silverReserveWallet(), fee - half);
