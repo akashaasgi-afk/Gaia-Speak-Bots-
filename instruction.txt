@@ -1,0 +1,37 @@
+1.1 — Update the deploy script
+Open your deploy script and make sure it uses EXACTLY these addresses:
+const FOUNDER = '0x86e9A17e91Fa708ebBE31910B24Fc50aA8BC6694';
+const PIONEER_1 = '0x6F69c758aa9B6cD5db3b93Eb1C71cBEC2D1cd709';
+const PIONEER_2 = '0xF59519beb56618840cF63e18c7A1641b76DBc9C8';
+const PIONEER_3 = '0x5562cCbe5ffCB2a94459552400209F0c9F57381B';
+const PIONEER_4 = '0xe03BDA30D27b33567DFeff7632027353A44e4a74';
+const PIONEER_5 = '0x0BFCB0A99418Dc528270086c445a1311E3fdD3D2';
+const OPERATIONS = '0x2FC9A3fAe5B69B89412f4C1C252DA92F0ef32E51';
+const GOLD_RESERVE = '0xF05936A42e55c7c3F060EF88f41CCde3f125593c';
+1.2 — Deployment order (MANDATORY — do not change this order)
+1. Deploy GaiaSpeakProtocol.sol first — pass Founder address as initialOwner
+2. Deploy GaiaSpeakToken.sol (GSG) — pass Protocol contract address
+3. Deploy GaiaSpeakSilverToken.sol (GSS) — pass Protocol contract address
+4. Deploy GaiaSpeakNFT.sol — pass Protocol + GSG + GSS addresses
+5. Call initialize() on Protocol with all 8 wallet addresses
+6. Call setGoldTokenContract() on Protocol with GSG address
+7. Call setSilverTokenContract() on Protocol with GSS address
+8. Call setNFTContract() on Protocol with NFT address
+1.3 — The initialize() function call
+Call this on GaiaSpeakProtocol after deployment:
+await protocol.initialize(
+ FOUNDER, // founderWallet
+ [PIONEER_1, PIONEER_2, PIONEER_3, PIONEER_4, PIONEER_5],
+ GOLD_RESERVE, // goldReserveWallet
+ OPERATIONS, // operationsWallet
+ FOUNDER, // legacyWallet (use Founder for now)
+ FOUNDER, // globalMissionWallet (use Founder for now)
+ OPERATIONS, // referralWallet
+ CHAINLINK_ETH_FEED // ethUsdFeed address on Amoy
+);
+1.4 — Chainlink feed address on Polygon Amoy testnet
+ETH/USD on Amoy: 0x001382149eBa3441043c1c66972b4772963f5D43
+GAIASPEAK PROTOCOL — DEVELOPER INSTRUCTIONS — CONFIDENTIAL — FOUNDER EYES ONLY
+GaiaSpeak Protocol — Founder: Bogdan — gaiaspeak11@gmail.com
+For gold price on testnet: deploy a MockGoldOracle contract (already in your
+GaiaSpeakEchidna.sol). Use mock prices until mainnet.
